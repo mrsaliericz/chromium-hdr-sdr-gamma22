@@ -22,6 +22,8 @@ from typing import BinaryIO, Iterable
 ROOT = Path(__file__).resolve().parent
 DEFAULT_RECIPES = ROOT / "recipes"
 BACKUP_SUFFIX = ".gamma22-original"
+PATCH_KIND_LOADS_TRAMPOLINE = "loads-trampoline"
+PATCH_KIND_EDGE_SINGLETON_USAGE_TABLE = "edge-singleton-usage-table"
 
 SRGB_TRANSFER_FUNCTION = bytes.fromhex(
     "9A 99 19 40 6E A7 72 3F 19 89 55 3D 91 83 9E 3D "
@@ -75,7 +77,7 @@ def reject_installed_browser(path: Path) -> None:
         if root.exists() and is_relative_to(resolved, root.resolve()):
             raise PatchError(
                 f"Refusing to modify an installed browser: {resolved}\n"
-                "Use an extracted Chrome for Testing / portable copy instead."
+                "Use an extracted or isolated portable browser copy instead."
             )
 
 
@@ -259,6 +261,60 @@ def find_initializer_loads(
     return pairs
 
 
+def find_edge_singleton_initializers(
+    path: Path,
+    sections: list[tuple[str, int, int, int, int]],
+    transfer_rva: int,
+    recipe: dict,
+) -> list[int]:
+    """Find Edge's strict `kSRGB + sRGB gamut -> singleton` constructors."""
+    color = recipe["color_space"]
+    gamut_rva = int(color["srgb_gamut_rva"], 0)
+    factory_rva = int(color["singleton_factory_rva"], 0)
+    pointer_rva = int(color["singleton_pointer_rva"], 0)
+    expected_count = int(color["expected_initializer_count"])
+    try:
+        _name, text_rva, _virtual_size, text_offset, text_size = next(
+            section for section in sections if section[0] == ".text"
+        )
+    except StopIteration as error:
+        raise PatchError("PE file has no .text section") from error
+    with path.open("rb") as stream:
+        stream.seek(text_offset)
+        text = stream.read(text_size)
+
+    def rip_target(position: int, displacement_offset: int, size: int) -> int:
+        displacement = struct.unpack_from(
+            "<i", text, position + displacement_offset
+        )[0]
+        return text_rva + position + size + displacement
+
+    found: list[int] = []
+    position = 0
+    while True:
+        position = text.find(b"\x48\x8D\x0D", position)
+        if position < 0:
+            break
+        if (
+            position + 26 <= len(text)
+            and text[position + 7 : position + 10] == b"\x48\x8D\x15"
+            and text[position + 14] == 0xE8
+            and text[position + 19 : position + 22] == b"\x48\x89\x05"
+            and rip_target(position, 3, 7) == transfer_rva
+            and rip_target(position + 7, 3, 7) == gamut_rva
+            and rip_target(position + 14, 1, 5) == factory_rva
+            and rip_target(position + 19, 3, 7) == pointer_rva
+        ):
+            found.append(text_rva + position)
+        position += 1
+    if len(found) != expected_count:
+        raise PatchError(
+            "Unexpected number of strict Edge sRGB singleton initializers: "
+            f"{len(found)} (expected {expected_count})"
+        )
+    return found
+
+
 def transfer_load(instruction_rva: int, target_rva: int, original: bytes) -> bytes:
     if len(original) != 7 or original[:2] != b"\x0F\x10":
         raise PatchError(f"Unexpected movups instruction at RVA 0x{instruction_rva:X}")
@@ -315,7 +371,7 @@ def validate_constants(stream: BinaryIO, sections, recipe: dict) -> None:
             raise PatchError(f"Unexpected {name} constant at RVA 0x{rva:X}")
 
 
-def patch_state(path: Path, recipe: dict) -> tuple[str, list[str]]:
+def loads_trampoline_patch_state(path: Path, recipe: dict) -> tuple[str, list[str]]:
     sections = read_pe_sections(path)
     color = recipe["color_space"]
     hdr = recipe["hdr_output"]
@@ -386,7 +442,149 @@ def patch_state(path: Path, recipe: dict) -> tuple[str, list[str]]:
     return "mixed-or-unknown", details
 
 
+def edge_patch_state(path: Path, recipe: dict) -> tuple[str, list[str]]:
+    sections = read_pe_sections(path)
+    color = recipe["color_space"]
+    hdr = recipe["hdr_output"]
+    srgb_rva = int(color["srgb_transfer_rva"], 0)
+    gamma_rva = int(color["gamma22_transfer_rva"], 0)
+    expected_count = int(color["expected_initializer_count"])
+    with path.open("rb") as stream:
+        validate_constants(stream, sections, recipe)
+
+    original_initializers = []
+    patched_initializers = []
+    try:
+        original_initializers = find_edge_singleton_initializers(
+            path, sections, srgb_rva, recipe
+        )
+    except PatchError:
+        pass
+    try:
+        patched_initializers = find_edge_singleton_initializers(
+            path, sections, gamma_rva, recipe
+        )
+    except PatchError:
+        pass
+
+    checks = (
+        (
+            "SDR/WCG/HDR usage loop",
+            int(hdr["loop_limit_rva"], 0),
+            parse_hex(hdr["loop_limit_original"]),
+            parse_hex(hdr["loop_limit_patched"]),
+        ),
+        (
+            "SDR/WCG/HDR usage table",
+            int(hdr["usage_table_rva"], 0),
+            parse_hex(hdr["usage_table_original"]),
+            parse_hex(hdr["usage_table_patched"]),
+        ),
+    )
+    hdr_states = []
+    details = []
+    with path.open("rb") as stream:
+        for name, rva, original, patched in checks:
+            current = read_at(stream, rva_to_offset(sections, rva), len(original))
+            state = (
+                "original" if current == original
+                else "patched" if current == patched
+                else "unexpected"
+            )
+            hdr_states.append(state)
+            details.append(f"{name}: {state}")
+
+    color_state = (
+        "original" if original_initializers and not patched_initializers
+        else "patched" if patched_initializers and not original_initializers
+        else "unexpected"
+    )
+    details.insert(
+        0,
+        f"Edge sRGB singleton gamma: {color_state} "
+        f"({expected_count} initializers / {expected_count} RIP loads)",
+    )
+    if color_state == "original" and all(item == "original" for item in hdr_states):
+        return "original", details
+    if color_state == "patched" and all(item == "patched" for item in hdr_states):
+        return "patched", details
+    return "mixed-or-unknown", details
+
+
+def patch_state(path: Path, recipe: dict) -> tuple[str, list[str]]:
+    if recipe.get("patch_kind", PATCH_KIND_LOADS_TRAMPOLINE) == PATCH_KIND_EDGE_SINGLETON_USAGE_TABLE:
+        return edge_patch_state(path, recipe)
+    return loads_trampoline_patch_state(path, recipe)
+
+
+def apply_edge_recipe(path: Path, recipe: dict) -> None:
+    reject_installed_browser(path)
+    if not path.is_file():
+        raise PatchError(f"DLL does not exist: {path}")
+    state, details = patch_state(path, recipe)
+    print("Before:")
+    for detail in details:
+        print(f"  {detail}")
+    if state == "patched":
+        print("Already patched; no changes made.")
+        return
+    if state != "original":
+        raise PatchError("DLL is neither pristine nor consistently patched")
+    expected_hash = recipe["original_sha256"].upper()
+    actual_hash = sha256(path)
+    if actual_hash != expected_hash:
+        raise PatchError(
+            f"Unexpected pristine DLL SHA-256: {actual_hash}\nExpected: {expected_hash}"
+        )
+
+    backup = path.with_name(path.name + BACKUP_SUFFIX)
+    if not backup.exists():
+        print(f"Creating recovery copy: {backup}")
+        shutil.copy2(path, backup)
+    elif sha256(backup) != expected_hash:
+        raise PatchError(f"Existing recovery copy has the wrong hash: {backup}")
+
+    sections = read_pe_sections(path)
+    color = recipe["color_space"]
+    srgb_rva = int(color["srgb_transfer_rva"], 0)
+    gamma_rva = int(color["gamma22_transfer_rva"], 0)
+    initializers = find_edge_singleton_initializers(path, sections, srgb_rva, recipe)
+    hdr = recipe["hdr_output"]
+    writes = [
+        (rva, b"\x48\x8D\x0D" + rel32(rva, 7, gamma_rva))
+        for rva in initializers
+    ]
+    writes.extend(
+        (
+            (int(hdr["loop_limit_rva"], 0), parse_hex(hdr["loop_limit_patched"])),
+            (int(hdr["usage_table_rva"], 0), parse_hex(hdr["usage_table_patched"])),
+        )
+    )
+    with path.open("r+b", buffering=0) as stream:
+        for rva, data in writes:
+            write_at(stream, rva_to_offset(sections, rva), data)
+        stream.flush()
+        os.fsync(stream.fileno())
+
+    state, details = patch_state(path, recipe)
+    print("After:")
+    for detail in details:
+        print(f"  {detail}")
+    if state != "patched":
+        raise PatchError("Post-write verification failed")
+    patched_hash = sha256(path)
+    expected_patched = recipe.get("patched_sha256", "").upper()
+    if expected_patched and patched_hash != expected_patched:
+        raise PatchError(
+            f"Patched hash mismatch: {patched_hash} (expected {expected_patched})"
+        )
+    print(f"Patched SHA-256: {patched_hash}")
+
+
 def apply_recipe(path: Path, recipe: dict) -> None:
+    if recipe.get("patch_kind", PATCH_KIND_LOADS_TRAMPOLINE) == PATCH_KIND_EDGE_SINGLETON_USAGE_TABLE:
+        apply_edge_recipe(path, recipe)
+        return
     reject_installed_browser(path)
     if not path.is_file():
         raise PatchError(f"DLL does not exist: {path}")
@@ -498,15 +696,22 @@ def resolve_dll(path: Path) -> Path:
     path = path.expanduser()
     if path.is_file():
         return path
-    direct = path / "chrome.dll"
-    if direct.is_file():
-        return direct
-    matches = list(path.glob("**/chrome.dll"))
+    direct_matches = [
+        path / name for name in ("chrome.dll", "msedge.dll")
+        if (path / name).is_file()
+    ]
+    if len(direct_matches) == 1:
+        return direct_matches[0]
+    matches = [
+        candidate
+        for name in ("chrome.dll", "msedge.dll")
+        for candidate in path.glob(f"**/{name}")
+    ]
     if len(matches) == 1:
         return matches[0]
     if not matches:
-        raise PatchError(f"No chrome.dll found under: {path}")
-    raise PatchError(f"More than one chrome.dll found under: {path}")
+        raise PatchError(f"No chrome.dll or msedge.dll found under: {path}")
+    raise PatchError(f"More than one browser DLL found under: {path}")
 
 
 def find_portableapps_launcher(dll: Path) -> Path | None:
@@ -518,6 +723,29 @@ def find_portableapps_launcher(dll: Path) -> Path | None:
 
 
 def write_launcher(dll: Path) -> Path:
+    if dll.name.lower() == "msedge.dll":
+        version_dir = dll.parent
+        application_dir = version_dir.parent
+        if (application_dir / "msedge.exe").is_file():
+            launcher_dir = application_dir.parent
+            executable = "%~dp0Application\\msedge.exe"
+        elif (version_dir / "msedge.exe").is_file():
+            launcher_dir = version_dir
+            executable = "%~dp0msedge.exe"
+        else:
+            raise PatchError(f"msedge.exe was not found for the patched DLL: {dll}")
+        launcher = launcher_dir / "Start Edge Gamma22.cmd"
+        content = (
+            "@echo off\r\n"
+            'set "EDGE_GAMMA_PROFILE=%~dp0EdgeGamma22Profile"\r\n'
+            f'start "Edge Gamma22" "{executable}" '
+            '--user-data-dir="%EDGE_GAMMA_PROFILE%" --no-first-run '
+            '--no-default-browser-check\r\n'
+        )
+        with launcher.open("w", encoding="utf-8", newline="") as stream:
+            stream.write(content)
+        return launcher
+
     portableapps_launcher = find_portableapps_launcher(dll)
     if portableapps_launcher is not None:
         return portableapps_launcher
@@ -540,7 +768,7 @@ def write_launcher(dll: Path) -> Path:
 def interactive_main(recipes: list[dict]) -> int:
     print("Chromium HDR SDR Gamma 2.2 patcher")
     print("====================================")
-    print("This tool supports only exact, audited Chrome for Testing builds.")
+    print("This tool supports only exact, audited portable Chrome/Edge builds.")
     print("Installed Chrome/Edge under Program Files is always refused.\n")
 
     search_roots = [Path.cwd()]
@@ -558,9 +786,9 @@ def interactive_main(recipes: list[dict]) -> int:
     if len(candidates) == 1:
         dll = candidates[0]
     else:
-        print("Place Gamma22Patcher.exe beside chrome.exe, or paste the path")
-        print("to the extracted chrome-win64 folder / chrome.dll below.")
-        entered = input("Chrome path: ").strip().strip('"')
+        print("Place Gamma22Patcher.exe in the portable browser folder, or")
+        print("paste the path to chrome.dll/msedge.dll or its parent folder.")
+        entered = input("Browser path: ").strip().strip('"')
         if not entered:
             print("Cancelled.")
             return 0
@@ -586,7 +814,7 @@ def interactive_main(recipes: list[dict]) -> int:
         verify(dll, recipe)
         return 0
     if choice == "r":
-        confirm = input("Type RESTORE to replace chrome.dll from its backup: ").strip()
+        confirm = input(f"Type RESTORE to replace {dll.name} from its backup: ").strip()
         if confirm != "RESTORE":
             print("Cancelled; no changes made.")
             return 0
@@ -594,7 +822,7 @@ def interactive_main(recipes: list[dict]) -> int:
         return 0
     if choice != "a":
         raise PatchError(f"Unknown choice: {choice!r}")
-    confirm = input("Type APPLY to patch this portable Chrome copy: ").strip()
+    confirm = input("Type APPLY to patch this portable browser copy: ").strip()
     if confirm != "APPLY":
         print("Cancelled; no changes made.")
         return 0
@@ -604,16 +832,19 @@ def interactive_main(recipes: list[dict]) -> int:
         print(f"PortableApps launcher ready: {launcher}")
     else:
         print(f"Launcher created: {launcher}")
-    print("Use that launcher so regular installed Chrome cannot capture the launch.")
+    print("Use that launcher so the installed browser cannot capture the launch.")
     return 0
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Patch a supported portable Chrome DLL for SDR gamma 2.2 in Windows HDR."
+        description="Patch a supported portable Chrome/Edge DLL for SDR gamma 2.2 in Windows HDR."
     )
     parser.add_argument("action", nargs="?", choices=("apply", "verify", "restore", "list"))
-    parser.add_argument("path", nargs="?", type=Path, help="chrome.dll or extracted Chrome directory")
+    parser.add_argument(
+        "path", nargs="?", type=Path,
+        help="chrome.dll/msedge.dll or an extracted portable browser directory",
+    )
     parser.add_argument("--recipes", type=Path, default=DEFAULT_RECIPES)
     return parser.parse_args()
 
@@ -635,7 +866,7 @@ def main() -> int:
                 )
             return 0
         if args.path is None:
-            raise PatchError("A chrome.dll or extracted Chrome directory is required")
+            raise PatchError("A browser DLL or extracted portable browser directory is required")
         dll = resolve_dll(args.path)
         recipe = choose_recipe(dll, recipes, allow_backup=args.action == "restore")
         print(f"Using recipe: {recipe['id']}")
