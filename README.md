@@ -325,6 +325,46 @@ SDR-through-DWM correction.
 In short: leave `dwm_eotf` enabled for other applications; it can coexist with
 this browser patch without double-correcting the browser image.
 
+### SDR browser video and NVIDIA RTX Video HDR
+
+Ordinary web-page SDR and SDR video are not always rendered through exactly
+the same Chromium path. SDR video is commonly decoded as limited-range YUV
+with BT.709 primaries, transfer and matrix, and it may use a dedicated hardware
+video surface. The patch guarantees its audited ordinary BT.709+sRGB RGB path;
+it should not be described as a universal gamma override for every SDR video
+decoder, codec or presentation path.
+
+If **NVIDIA RTX Video HDR** is enabled, the distinction is especially
+important. NVIDIA documents that RTX Video HDR converts supported SDR browser
+video into HDR10 in real time in current Chrome and Edge. In that configuration:
+
+- this patch keeps the surrounding SDR web page at gamma 2.2;
+- RTX Video HDR handles the SDR video's separate SDR-to-HDR tone mapping;
+- native HDR video is not processed by RTX Video HDR and remains on Chromium's
+  unchanged native HDR path.
+
+This combination has been visually verified with SDR and native-HDR YouTube
+playback. It is a useful optional setup, but RTX-processed SDR video is
+**synthetic HDR**, not creator-authored native HDR and not a pure gamma 2.2 SDR
+reference.
+
+When showing or hiding player controls, a brief gamma/brightness transition of
+only a few frames may occasionally be visible. Testing showed this transition
+only with RTX Video HDR active, consistent with a short video-surface or filter
+reconfiguration; it is not a persistent page-gamma switch. NVIDIA also states
+that enabling RTX Video automatically disables Multiplane Overlay (MPO), so the
+exact internal transition should not be assumed to be a normal MPO promotion.
+
+To determine whether the browser patch itself affects a particular SDR video
+path, disable **RTX Video HDR**, restart the browser, confirm `Color: bt709` in
+YouTube's **Stats for nerds**, and compare again. NVIDIA App can display a
+real-time RTX Video status indicator. On Edge, NVIDIA recommends disabling
+Edge's own **Enhance videos** option when using NVIDIA RTX Video.
+
+See NVIDIA's official
+[RTX Video FAQ](https://nvidia.custhelp.com/app/answers/detail/a_id/5448/~/rtx-video-faq)
+for current compatibility, exclusions and status-indicator instructions.
+
 The patcher creates `chrome.dll.gamma22-original` or
 `msedge.dll.gamma22-original` beside the DLL before the first write. Restore it
 with:
