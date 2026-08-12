@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="color-scheme" content="dark">
+  <title>Chromium Gamma 2.2 / scRGB test</title>
+  <style>
+    :root { font: 15px/1.4 "Segoe UI", sans-serif; color: #eee; background: #101010; }
+    body { margin: 24px; max-width: 1400px; }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    h2 { margin: 28px 0 8px; font-size: 18px; }
+    p { max-width: 1000px; color: #bbb; }
+    .row { display: grid; grid-template-columns: 215px repeat(17, minmax(24px, 1fr)); gap: 2px; margin: 3px 0; }
+    .label { display: flex; align-items: center; color: #ddd; padding-right: 8px; }
+    .swatch { height: 44px; position: relative; outline: 1px solid #282828; }
+    .swatch span { position: absolute; inset: auto 0 2px; text-align: center; color: #999; font-size: 9px; text-shadow: 0 1px #000; }
+    .gamut { display: grid; grid-template-columns: 215px 180px 180px; gap: 10px; align-items: center; }
+    .color-box { height: 100px; border: 1px solid #666; }
+    button { padding: 8px 14px; color: #fff; background: #333; border: 1px solid #777; border-radius: 4px; }
+    #mixed { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    #mixed > div { min-height: 130px; border: 1px solid #555; }
+    #fixed-sdr { background: linear-gradient(90deg, rgb(8 8 8), rgb(32 32 32), rgb(64 64 64), rgb(128 128 128)); }
+    #toggle-p3 { background: color(display-p3 1 0 0); }
+    .hidden-p3 { visibility: hidden; }
+  </style>
+</head>
+<body>
+  <h1>Chromium Gamma 2.2 / scRGB test</h1>
+  <p>
+    In every column, the first and third rows should look alike. The second row
+    is the upstream piecewise-sRGB reference and should be visibly lighter in
+    the shadows. If the first row resembles the second, the patch is not active
+    on that rendering path.
+  </p>
+
+  <h2>Shadows: code values 0-32</h2>
+  <div id="shadow-rows"></div>
+
+  <h2>Full range: code values 0-255</h2>
+  <div id="full-rows"></div>
+
+  <h2>Display-P3 and mixed content</h2>
+  <div class="gamut">
+    <div class="label">Gamut reference</div>
+    <div><div class="color-box" style="background:rgb(255 0 0)"></div>sRGB red</div>
+    <div><div class="color-box" style="background:color(display-p3 1 0 0)"></div>Display-P3 red</div>
+  </div>
+  <p>
+    P3 red should remain outside the sRGB gamut. Repeatedly hide and show the P3
+    block; the fixed SDR gradient on the left must not change brightness.
+  </p>
+  <button id="toggle">Hide / show P3 content</button>
+  <div id="mixed">
+    <div id="fixed-sdr"></div>
+    <div id="toggle-p3"></div>
+  </div>
+
+  <script>
+    const srgbEotf = x => x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+    const gamma22 = x => x ** 2.2;
+
+    function linearCss(y) {
+      const value = Math.max(0, Math.min(1, y)).toFixed(9);
+      return `color(srgb-linear ${value} ${value} ${value})`;
+    }
+
+    function addRows(hostId, values) {
+      const host = document.getElementById(hostId);
+      const definitions = [
+        ["Ordinary SDR rgb()", v => `rgb(${v} ${v} ${v})`],
+        ["Upstream piecewise sRGB", v => linearCss(srgbEotf(v / 255))],
+        ["Pure gamma 2.2 reference", v => linearCss(gamma22(v / 255))],
+      ];
+      for (const [label, color] of definitions) {
+        const row = document.createElement("div");
+        row.className = "row";
+        row.innerHTML = `<div class="label">${label}</div>`;
+        for (const value of values) {
+          const swatch = document.createElement("div");
+          swatch.className = "swatch";
+          swatch.style.background = color(value);
+          swatch.innerHTML = `<span>${value}</span>`;
+          row.appendChild(swatch);
+        }
+        host.appendChild(row);
+      }
+    }
+
+    addRows("shadow-rows", [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 18, 20, 24, 28, 32]);
+    addRows("full-rows", [0, 8, 16, 24, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 255]);
+    document.getElementById("toggle").addEventListener("click", () => {
+      document.getElementById("toggle-p3").classList.toggle("hidden-p3");
+    });
+  </script>
+</body>
+</html>
