@@ -1,7 +1,14 @@
 # Chromium HDR SDR Gamma 2.2 patcher
 
-Experimental, fail-closed patcher for supported **64-bit Google Chrome builds
-on Windows**, including normally branded Google Chrome Portable.
+> **Free and open source, forever.** You may use, share, modify and redistribute
+> this MIT-licensed solution at no cost. If it improves your Windows HDR setup
+> and you would like to support the work, I will be very happy if you
+> [buy me a coffee ☕](https://buymeacoffee.com/mrsaliericze) — but donating is
+> entirely optional and the patcher is and always will be free.
+
+Experimental, fail-closed patcher for supported **64-bit Google Chrome and
+Microsoft Edge builds on Windows**, including normally branded Google Chrome
+Portable and an isolated copy of Microsoft Edge.
 It keeps Chromium's native HDR / wide-gamut pipeline, but changes ordinary
 BT.709+sRGB SDR content to a pure gamma 2.2 interpretation while Windows HDR
 is enabled.
@@ -11,8 +18,8 @@ is enabled.
 > PQ, HLG, HDR black levels and highlights remain on Chromium's original HDR
 > path and visually match the unpatched browser.
 
-The repository contains **no Chrome or Edge binaries**. Download Chrome for
-Testing from Google and patch only your own extracted copy.
+The repository contains **no Chrome or Edge binaries**. Obtain the browser from
+Google or Microsoft and patch only your own extracted/isolated copy.
 
 ## Supported build
 
@@ -21,11 +28,16 @@ Testing from Google and patch only your own extracted copy.
   - Original `chrome.dll` SHA-256:
     `577D16A963D3283960140C23521F5AEB5459D3127267D8076E71E1CF94403A79`
 - Google Chrome for Testing `151.0.7922.138`, win64
-- Exact official archive: [chrome-win64.zip](https://storage.googleapis.com/chrome-for-testing-public/151.0.7922.138/win64/chrome-win64.zip)
-- Archive SHA-256:
-  `864A03252382FCFAF0475A1D7CAD30B99CB54883060DCB5526249F4CA08AA03A`
-- Original `chrome.dll` SHA-256:
-  `660E66FFC2F622E57506E373DBB33F7CDA4005D38D4CDAB2BFEB3F9A274FDAFC`
+  - Exact official archive: [chrome-win64.zip](https://storage.googleapis.com/chrome-for-testing-public/151.0.7922.138/win64/chrome-win64.zip)
+  - Archive SHA-256:
+    `864A03252382FCFAF0475A1D7CAD30B99CB54883060DCB5526249F4CA08AA03A`
+  - Original `chrome.dll` SHA-256:
+    `660E66FFC2F622E57506E373DBB33F7CDA4005D38D4CDAB2BFEB3F9A274FDAFC`
+- Microsoft Edge isolated portable copy `151.0.4129.78`, win64
+  - Built by copying your own Microsoft-signed Edge `Application` directory
+    outside `Program Files`; this is not an official Microsoft portable edition.
+  - Original Microsoft-signed `msedge.dll` SHA-256:
+    `29B191751916DBFE5ED4206022A0D7AB45BD79966D9074ED872112D1865DCEC6`
 
 Every recipe is tied to an exact original hash. Unknown or updated builds are
 rejected before any write.
@@ -33,10 +45,13 @@ rejected before any write.
 ## What the patch changes
 
 1. Adds ordinary SDR (`ContentColorUsage::kSRGB`) to Chromium's existing
-   scRGB/F16 HDR output setup, alongside WCG and HDR.
-2. Redirects only the 49 verified inline constructions combining the canonical
-   sRGB transfer function with the BT.709/sRGB gamut to Skia's adjacent pure
-   gamma 2.2 transfer function.
+   scRGB/F16 HDR output setup, alongside WCG and HDR. Chrome recipes use an
+   audited output trampoline; the Edge recipe extends its audited SDR/WCG/HDR
+   usage table.
+2. Redirects only the version-specific, structurally verified constructions
+   combining the canonical sRGB transfer function with the BT.709/sRGB gamut
+   to Skia's adjacent pure gamma 2.2 transfer function. Depending on the build,
+   the recipe verifies 47, 49 or 98 exact initializer sites.
 
 The shared sRGB transfer constant is **not** overwritten. That distinction is
 important because Display-P3 commonly uses the sRGB transfer curve with P3
@@ -67,7 +82,30 @@ Alternatively, the exact official Chrome for Testing `151.0.7922.138` win64
 ZIP remains supported. For that build, put the patcher beside `chrome.exe`; it
 will create `Start Chrome Gamma22.cmd` after applying the patch.
 
-The EXE refuses unknown Chrome versions and installed browsers. It creates a
+### Microsoft Edge isolated-copy method
+
+Microsoft currently distributes Edge as an installer/offline enterprise
+package, not as an official portable browser. The patcher therefore supports a
+user-created isolated copy of the exact Edge `151.0.4129.78` build:
+
+1. Close every Microsoft Edge window and process.
+2. Locate the installed version directory, normally under
+   `C:\Program Files (x86)\Microsoft\Edge\Application\151.0.4129.78`.
+3. Copy the **entire `Application` directory** to a new writable folder, for
+   example `C:\Users\Public\EdgeGamma22Portable\Application`. Never patch the
+   original directory under `Program Files`.
+4. Put `Gamma22Patcher.exe` in `C:\Users\Public\EdgeGamma22Portable` and
+   double-click it. Choose `A`, then type `APPLY`.
+5. Start Edge only through the generated `Start Edge Gamma22.cmd`. It uses an
+   isolated `EdgeGamma22Profile` inside the copied folder.
+
+If your installed Edge has already updated to a different version, the patcher
+will safely refuse it. Do not download an old `msedge.dll` from third-party DLL
+sites. Microsoft publishes official installers on the
+[Edge for Business download page](https://www.microsoft.com/en-us/edge/business/download),
+but every new Edge build still requires a separately audited recipe.
+
+The EXE refuses unknown browser versions and installed browsers. It creates a
 verified original-DLL backup before changing anything. Windows may show a
 SmartScreen warning because this community-built EXE is not code-signed; do
 not disable Windows security, and compare the release SHA-256 if in doubt.
@@ -114,11 +152,13 @@ SDR-through-DWM correction.
 In short: leave `dwm_eotf` enabled for other applications; it can coexist with
 this browser patch without double-correcting the browser image.
 
-The patcher creates `chrome.dll.gamma22-original` beside the DLL before the
-first write. Restore it with:
+The patcher creates `chrome.dll.gamma22-original` or
+`msedge.dll.gamma22-original` beside the DLL before the first write. Restore it
+with:
 
 ```powershell
 python .\gamma22_patcher.py restore C:\path\to\chrome-win64\chrome.dll
+# Edge: python .\gamma22_patcher.py restore C:\path\to\msedge.dll
 ```
 
 ## Safety model
@@ -130,10 +170,10 @@ python .\gamma22_patcher.py restore C:\path\to\chrome-win64\chrome.dll
 - Writes a recovery copy and performs structural post-write verification.
 - Refuses mixed, ambiguous, already-modified, and unknown versions.
 
-Modifying `chrome.dll` invalidates its Authenticode signature. Browser updates
-replace the DLL and require a new audited recipe. Security software may also
-object to modified browser code. Use only an isolated portable/test copy and
-never for high-risk browsing.
+Modifying `chrome.dll` or `msedge.dll` invalidates that DLL's Authenticode
+signature. Browser updates replace the DLL and require a new audited recipe.
+Security software may also object to modified browser code. Use only an
+isolated portable/test copy and never for high-risk browsing.
 
 ## Verification status
 
@@ -186,5 +226,12 @@ its JSON recipes; it does not contain Chrome.
 
 ## License
 
-The patcher source and recipes are MIT-licensed. Google Chrome, Chromium,
-Skia, Windows and Microsoft Edge retain their respective licenses and marks.
+The patcher source and recipes are MIT-licensed: they are free to use, copy,
+modify, publish and redistribute, including in derivative projects, subject
+only to the short terms in [`LICENSE`](LICENSE). The patcher is and will remain
+free; donations never unlock features or recipes.
+
+If the project helped you and you voluntarily want to support continued recipe
+research, you can [buy me a coffee](https://buymeacoffee.com/mrsaliericze).
+Google Chrome, Chromium, Skia, Windows and Microsoft Edge retain their
+respective licenses and marks.

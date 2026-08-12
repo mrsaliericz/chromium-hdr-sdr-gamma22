@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "microsoft-edge-isolated-win64-151.0.4129.78",
+  "product": "Microsoft Edge isolated portable copy",
+  "version": "151.0.4129.78",
+  "architecture": "win64",
+  "dll_name": "msedge.dll",
+  "patch_kind": "edge-singleton-usage-table",
+  "original_sha256": "29B191751916DBFE5ED4206022A0D7AB45BD79966D9074ED872112D1865DCEC6",
+  "patched_sha256": "676201839509C581241EBE36FCF3EF3FD6412F1CF3519E986B7F41107C33D99B",
+  "color_space": {
+    "srgb_gamut_rva": "0x11119090",
+    "srgb_transfer_rva": "0x111190B8",
+    "gamma22_transfer_rva": "0x111190D8",
+    "singleton_factory_rva": "0x17136A0",
+    "singleton_pointer_rva": "0x137B1458",
+    "expected_initializer_count": 98
+  },
+  "hdr_output": {
+    "loop_limit_rva": "0x457E412",
+    "loop_limit_original": "48 83 FF 02",
+    "loop_limit_patched": "48 83 FF 03",
+    "usage_table_rva": "0x120E8DA7",
+    "usage_table_original": "01 02 00",
+    "usage_table_patched": "00 01 02"
+  }
+}
