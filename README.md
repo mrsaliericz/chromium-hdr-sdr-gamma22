@@ -210,6 +210,79 @@ verified original-DLL backup before changing anything. Windows may show a
 SmartScreen warning because this community-built EXE is not code-signed; do
 not disable Windows security, and compare the release SHA-256 if in doubt.
 
+### Make the patched Chrome or Edge your default browser
+
+Windows 11 will not offer an arbitrary portable EXE as a default browser until
+it has been registered. The included
+[`tools/register_default_browser.ps1`](tools/register_default_browser.ps1)
+creates a separate, per-user registration named **Chrome Gamma 2.2** or
+**Edge Gamma 2.2**. It does not modify Chrome's `ChromeHTML`, Edge's
+`MSEdgeHTM`, the installed browser, or machine-wide registry keys. Administrator
+rights are not required. It follows Microsoft's documented
+[Default Programs registration](https://learn.microsoft.com/en-us/windows/win32/shell/default-programs)
+and [per-user Default Apps deep link](https://learn.microsoft.com/en-us/windows/apps/develop/launch/launch-default-apps-settings).
+
+Download the script (or run it from a cloned repository), then use the example
+that matches your browser. Change the paths to your actual portable folder.
+
+For an isolated Edge copy:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\register_default_browser.ps1 `
+  -Browser Edge `
+  -ExecutablePath 'C:\Users\Public\EdgeGamma22Portable\Application\msedge.exe' `
+  -ProfileDirectory 'C:\Users\Public\EdgeGamma22Portable\EdgeGamma22Profile'
+```
+
+For Google Chrome Portable by PortableApps.com, register its launcher. Do not
+add `-ProfileDirectory`; the PortableApps launcher already selects its portable
+profile:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\register_default_browser.ps1 `
+  -Browser Chrome `
+  -ExecutablePath 'C:\PortableApps\GoogleChromePortable\GoogleChromePortable.exe'
+```
+
+For a raw extracted Chrome or Chrome for Testing copy, register `chrome.exe`
+and provide its isolated profile explicitly:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\register_default_browser.ps1 `
+  -Browser Chrome `
+  -ExecutablePath 'C:\Browsers\chrome-win64\chrome.exe' `
+  -ProfileDirectory 'C:\Browsers\ChromeGamma22Profile'
+```
+
+The script opens **Settings → Apps → Default apps** on the new browser's page.
+Clear the optional **Pin to Start** and **Pin to taskbar** checkboxes if you
+already have a working portable shortcut, then click **Set default**. Windows
+protects the final user choice, so the script deliberately does not try to
+write or bypass the protected `UserChoice` hash.
+
+This sets `HTTP`, `HTTPS`, `.htm`, `.html` and `.shtml`. PDF is intentionally
+left unchanged. Verify `edge://version` or `chrome://version` after opening an
+external link: both **Executable Path** and **Profile Path** must point to the
+patched portable copy. Links using the Windows-specific `microsoft-edge:`
+protocol may still open the normally installed Edge; ordinary web links use
+the selected default browser.
+
+The registration keeps working while the executable and profile stay at the
+same paths. Keep the portable browser patched to a currently supported,
+security-updated build before using it for all external links.
+
+To undo the change, first select another default browser in Windows Settings.
+Then remove only the custom per-user registration:
+
+```powershell
+# Choose Chrome here if that is the copy you registered.
+powershell -ExecutionPolicy Bypass -File .\tools\register_default_browser.ps1 `
+  -Browser Edge -Unregister
+```
+
+The script refuses to unregister while its custom ProgID is still selected,
+preventing a broken default association.
+
 ### Python / command-line method
 
 Python 3.9 or newer is required for this method. The prebuilt release can use
