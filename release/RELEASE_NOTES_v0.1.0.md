@@ -3,6 +3,11 @@
 First public experimental release for **Google Chrome for Testing
 151.0.7922.138 win64**.
 
+> **HDR content remains fully correct and completely unchanged.** This patch
+> affects only ordinary SDR BT.709/sRGB. Native HDR video, PQ, HLG, HDR black
+> levels and highlights continue through Chromium's original HDR path and
+> visually match the unpatched browser.
+
 ### Easy installation
 
 1. Download and extract the exact official
@@ -19,7 +24,8 @@ cannot capture the launch.
 
 - ordinary BT.709/sRGB SDR uses pure gamma 2.2;
 - Display-P3 remains wide gamut;
-- native HDR video and HDR black remain unchanged;
+- **native HDR video, PQ/HLG, HDR black levels and highlights remain correct
+  and unchanged, matching unpatched Chrome;**
 - SDR appearance stays stable on mixed SDR + P3/HDR pages.
 
 ### dwm_eotf compatibility

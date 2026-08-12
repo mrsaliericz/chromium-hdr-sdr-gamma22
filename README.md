@@ -5,6 +5,11 @@ It keeps Chromium's native HDR / wide-gamut pipeline, but changes ordinary
 BT.709+sRGB SDR content to a pure gamma 2.2 interpretation while Windows HDR
 is enabled.
 
+> **HDR content is displayed correctly and without any modification.** The
+> patch changes only ordinary SDR BT.709/sRGB interpretation. Native HDR video,
+> PQ, HLG, HDR black levels and highlights remain on Chromium's original HDR
+> path and visually match the unpatched browser.
+
 The repository contains **no Chrome or Edge binaries**. Download Chrome for
 Testing from Google and patch only your own extracted copy.
 
@@ -31,7 +36,8 @@ rejected before any write.
 The shared sRGB transfer constant is **not** overwritten. That distinction is
 important because Display-P3 commonly uses the sRGB transfer curve with P3
 primaries. PQ, HLG, P3 primaries and HDR video paths are not selected by the
-patched BT.709+sRGB construction pattern.
+patched BT.709+sRGB construction pattern. **HDR rendering is therefore neither
+tone-mapped nor gamma-adjusted by this patch; it remains unchanged.**
 
 ## Usage
 
@@ -123,7 +129,8 @@ were visually verified on Windows 11 with Windows HDR enabled for:
 
 - SDR black-level and grayscale tests matching a pure gamma 2.2 reference;
 - Display-P3 remaining wide gamut;
-- native HDR video and HDR black matching an unmodified Chromium browser;
+- **native HDR video, PQ/HLG, HDR black levels and highlights remaining fully
+  correct and unchanged, matching an unmodified Chromium browser;**
 - stable SDR appearance on mixed SDR + P3/HDR pages.
 
 The Chrome mixed-content test remained stable when P3/HDR content appeared or
