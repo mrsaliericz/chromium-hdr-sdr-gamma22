@@ -59,6 +59,33 @@ primaries. PQ, HLG, P3 primaries and HDR video paths are not selected by the
 patched BT.709+sRGB construction pattern. **HDR rendering is therefore neither
 tone-mapped nor gamma-adjusted by this patch; it remains unchanged.**
 
+### HDR photos, iPhone and Google Photos
+
+The patch intentionally does not modify Display-P3 images or HDR gain-map
+photos. An HDR photo can use a Display-P3 or sRGB SDR base plus a gain map;
+Chromium reconstructs its HDR rendition separately from the ordinary
+BT.709+sRGB SDR path corrected by this patch.
+
+Google Photos may serve or export an iPhone photo as a converted Adobe Ultra
+HDR JPEG. Such a rendition can contain a Display-P3 SDR base with the
+piecewise-sRGB transfer curve and a separate HDR gain map. Its shadows and
+midtones may consequently look lighter than the same photo in Apple Photos or
+iCloud even while its HDR highlights and wide gamut remain active. This is a
+difference in the supplied image rendition and gain-map tone mapping, not a
+failure of the SDR gamma patch. Google documents its
+[Ultra HDR support](https://support.google.com/photos/answer/14159275) but does
+not promise pixel-identical tone mapping across the Apple and Google display
+pipelines.
+
+For the most faithful rendering of iPhone HDR photos, prefer iCloud or the
+original Apple media. If Google Photos is used for backup, select
+[Original quality](https://support.google.com/photos/answer/6220791), avoid
+unnecessary web edits and retain the original HEIC/JPEG files separately; a
+Google Photos web preview can still be a transformed rendition. Applying gamma
+2.2 globally to Display-P3 or gain-map paths is not recommended, because that
+would alter legitimate wide-gamut/HDR content and its creator-authored HDR
+appearance.
+
 ## Usage
 
 Requirements: Windows 11 x64 and Windows HDR enabled.
