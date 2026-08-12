@@ -99,6 +99,45 @@ user-created isolated copy of the exact Edge `151.0.4129.78` build:
 5. Start Edge only through the generated `Start Edge Gamma22.cmd`. It uses an
    isolated `EdgeGamma22Profile` inside the copied folder.
 
+#### Desktop shortcut and taskbar pin
+
+Windows does not reliably pin the generated `.cmd` launcher. You can instead
+create a normal desktop shortcut that launches the copied `msedge.exe` with
+the same isolated profile:
+
+1. Right-click the desktop and select **New → Shortcut**.
+2. For a copy stored in `C:\Users\Public\EdgeGamma22Portable`, enter:
+
+   ```text
+   "C:\Users\Public\EdgeGamma22Portable\Application\msedge.exe" --user-data-dir="C:\Users\Public\EdgeGamma22Portable\EdgeGamma22Profile" --no-first-run --no-default-browser-check
+   ```
+
+   Replace both root paths if you placed the portable copy elsewhere.
+3. Name the shortcut `Edge Gamma 2.2`.
+4. In its **Properties**, set **Start in** to:
+
+   ```text
+   C:\Users\Public\EdgeGamma22Portable\Application
+   ```
+
+5. Right-click the finished shortcut (use **Show more options** on Windows 11)
+   and select **Pin to taskbar**. If that option is unavailable, press
+   `Win+R`, open `shell:programs`, copy the shortcut there, then find
+   `Edge Gamma 2.2` in Start and pin it from the search result.
+
+Do not pin an already-running Edge window: Windows may create a new shortcut
+without `--user-data-dir`, allowing the installed Edge session to capture the
+launch. After starting the pinned shortcut, open `edge://version` and verify
+both values:
+
+```text
+Executable Path: C:\Users\Public\EdgeGamma22Portable\Application\msedge.exe
+Profile Path:    C:\Users\Public\EdgeGamma22Portable\EdgeGamma22Profile\Default
+```
+
+Both paths matter. The executable must come from the patched copy and the
+profile must remain inside its isolated portable folder.
+
 If your installed Edge has already updated to a different version, the patcher
 will safely refuse it. Do not download an old `msedge.dll` from third-party DLL
 sites. Microsoft publishes official installers on the
