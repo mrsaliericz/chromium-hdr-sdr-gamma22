@@ -103,7 +103,14 @@ user-created isolated copy of the exact Edge `151.0.4129.78` build:
 
 Windows does not reliably pin the generated `.cmd` launcher. You can instead
 create a normal desktop shortcut that launches the copied `msedge.exe` with
-the same isolated profile:
+the same isolated profile. This procedure has been verified to keep the
+running portable window grouped under its pinned taskbar icon.
+
+> **Create a completely new shortcut.** Do not copy or edit the shortcut from
+> the normally installed Microsoft Edge. Existing Edge shortcuts can retain a
+> hidden Windows `AppUserModelID` even after their visible target and arguments
+> are changed. That stale identity can make the portable window open under a
+> second taskbar icon.
 
 1. Right-click the desktop and select **New → Shortcut**.
 2. For a copy stored in `C:\Users\Public\EdgeGamma22Portable`, enter:
@@ -125,6 +132,26 @@ the same isolated profile:
    `Win+R`, open `shell:programs`, copy the shortcut there, then find
    `Edge Gamma 2.2` in Start and pin it from the search result.
 
+Alternatively, this PowerShell snippet creates a fresh shortcut without
+inheriting metadata from an installed Edge shortcut. Change only
+`$edgeGammaRoot` if your portable folder is elsewhere:
+
+```powershell
+$edgeGammaRoot = 'C:\Users\Public\EdgeGamma22Portable'
+$shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Edge Gamma 2.2.lnk'
+$edgeExe = Join-Path $edgeGammaRoot 'Application\msedge.exe'
+$edgeProfile = Join-Path $edgeGammaRoot 'EdgeGamma22Profile'
+
+$shell = New-Object -ComObject WScript.Shell
+$shortcut = $shell.CreateShortcut($shortcutPath)
+$shortcut.TargetPath = $edgeExe
+$shortcut.Arguments = "--user-data-dir=`"$edgeProfile`" --no-first-run --no-default-browser-check"
+$shortcut.WorkingDirectory = Join-Path $edgeGammaRoot 'Application'
+$shortcut.IconLocation = "$edgeExe,0"
+$shortcut.Description = 'Microsoft Edge Gamma 2.2'
+$shortcut.Save()
+```
+
 Do not pin an already-running Edge window: Windows may create a new shortcut
 without `--user-data-dir`, allowing the installed Edge session to capture the
 launch. After starting the pinned shortcut, open `edge://version` and verify
@@ -137,6 +164,13 @@ Profile Path:    C:\Users\Public\EdgeGamma22Portable\EdgeGamma22Profile\Default
 
 Both paths matter. The executable must come from the patched copy and the
 profile must remain inside its isolated portable folder.
+
+If the window still appears under a second icon, unpin the old custom icon,
+close the isolated Edge copy, delete only the custom shortcut that was copied
+or edited from normal Edge, and create a fresh shortcut using the steps or
+PowerShell snippet above. Do not change or remove the normal installed Edge
+shortcut. Windows may need a restart of Explorer or a sign-out/sign-in to
+discard an already cached taskbar identity.
 
 If your installed Edge has already updated to a different version, the patcher
 will safely refuse it. Do not download an old `msedge.dll` from third-party DLL
