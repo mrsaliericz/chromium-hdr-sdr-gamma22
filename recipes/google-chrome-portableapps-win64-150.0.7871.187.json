@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "google-chrome-portableapps-win64-150.0.7871.187",
+  "product": "Google Chrome Portable (PortableApps.com)",
+  "version": "150.0.7871.187",
+  "architecture": "win64",
+  "dll_name": "chrome.dll",
+  "original_sha256": "577D16A963D3283960140C23521F5AEB5459D3127267D8076E71E1CF94403A79",
+  "patched_sha256": "E0497268F42D5CCEB185930A497F992AB34536BA7080A92C889546A29EB22E81",
+  "color_space": {
+    "srgb_gamut_rva": "0xF0BB3B0",
+    "srgb_transfer_rva": "0xF0BB3D4",
+    "gamma22_transfer_rva": "0xF0BB3F0",
+    "expected_initializer_count": 47
+  },
+  "hdr_output": {
+    "hook_rva": "0x1F8EBD0",
+    "hook_original": "B2 01 45 31 C0",
+    "resume_rva": "0x1F8EBD5",
+    "set_output_call_rva": "0xA4C5CD0",
+    "set_output_callee_bytes": "56 57 48 89 C8 80 FA 02 74 12 0F B6 CA 83 F9 01 74 14 85 C9 75 3D 41 0F B6 D0 EB 12 41 0F B6 D0 48 83 CA 04 EB 08 41 0F B6 D0 48 83 CA 02 4C 8B 44 24 38 89 D1 C1 E1 06 8D 3C 91 48 01 C7 B9 11 00 00 00 4C 89 CE F3 A5 4C 89 84 D0 98 01 00 00 5F 5E C3",
+    "cave_rva": "0x54AD6A0",
+    "cave_size": 96,
+    "cave_fill": "0xCC"
+  }
+}

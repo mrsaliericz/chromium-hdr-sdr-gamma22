@@ -1,6 +1,7 @@
 # Chromium HDR SDR Gamma 2.2 patcher
 
-Experimental, fail-closed patcher for **64-bit Chrome for Testing on Windows**.
+Experimental, fail-closed patcher for supported **64-bit Google Chrome builds
+on Windows**, including normally branded Google Chrome Portable.
 It keeps Chromium's native HDR / wide-gamut pipeline, but changes ordinary
 BT.709+sRGB SDR content to a pure gamma 2.2 interpretation while Windows HDR
 is enabled.
@@ -15,6 +16,10 @@ Testing from Google and patch only your own extracted copy.
 
 ## Supported build
 
+- Google Chrome Portable by PortableApps.com `150.0.7871.187`, win64
+  - Normal Google Chrome name and icon; no "Chrome for Testing" branding.
+  - Original `chrome.dll` SHA-256:
+    `577D16A963D3283960140C23521F5AEB5459D3127267D8076E71E1CF94403A79`
 - Google Chrome for Testing `151.0.7922.138`, win64
 - Exact official archive: [chrome-win64.zip](https://storage.googleapis.com/chrome-for-testing-public/151.0.7922.138/win64/chrome-win64.zip)
 - Archive SHA-256:
@@ -45,14 +50,22 @@ Requirements: Windows 11 x64 and Windows HDR enabled.
 
 ### Easy EXE method
 
-1. Download the exact official
-   [Chrome for Testing 151.0.7922.138 win64 ZIP](https://storage.googleapis.com/chrome-for-testing-public/151.0.7922.138/win64/chrome-win64.zip)
-   and extract it.
+1. Download and install
+   [Google Chrome Portable 64-bit from PortableApps.com](https://portableapps.com/apps/internet/google-chrome-portable-64)
+   into a new folder. Version `150.0.7871.187` is supported.
 2. Download `Gamma22Patcher.exe` from the
    [latest GitHub Release](https://github.com/mrsaliericz/chromium-hdr-sdr-gamma22/releases/latest).
-3. Put `Gamma22Patcher.exe` beside the extracted `chrome.exe` and double-click it.
+3. Put `Gamma22Patcher.exe` beside `GoogleChromePortable.exe` and double-click it.
 4. Choose `A`, then type `APPLY` when asked.
-5. Start the browser using the newly created `Start Chrome Gamma22.cmd`.
+5. Start the browser normally using `GoogleChromePortable.exe`.
+
+This is the recommended beginner-friendly option: it has the normal Google
+Chrome icon and name, keeps its profile inside the portable folder, and does
+not display the "Chrome for Testing" label.
+
+Alternatively, the exact official Chrome for Testing `151.0.7922.138` win64
+ZIP remains supported. For that build, put the patcher beside `chrome.exe`; it
+will create `Start Chrome Gamma22.cmd` after applying the patch.
 
 The EXE refuses unknown Chrome versions and installed browsers. It creates a
 verified original-DLL backup before changing anything. Windows may show a
@@ -124,8 +137,9 @@ never for high-risk browsing.
 
 ## Verification status
 
-The Chrome for Testing `151.0.7922.138` recipe and the equivalent Edge patch
-were visually verified on Windows 11 with Windows HDR enabled for:
+The PortableApps Chrome `150.0.7871.187`, Chrome for Testing `151.0.7922.138`,
+and the equivalent Edge patch were visually verified on Windows 11 with
+Windows HDR enabled for:
 
 - SDR black-level and grayscale tests matching a pure gamma 2.2 reference;
 - Display-P3 remaining wide gamut;

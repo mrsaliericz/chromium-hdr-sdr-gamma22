@@ -509,7 +509,18 @@ def resolve_dll(path: Path) -> Path:
     raise PatchError(f"More than one chrome.dll found under: {path}")
 
 
+def find_portableapps_launcher(dll: Path) -> Path | None:
+    for parent in dll.parents:
+        launcher = parent / "GoogleChromePortable.exe"
+        if launcher.is_file():
+            return launcher
+    return None
+
+
 def write_launcher(dll: Path) -> Path:
+    portableapps_launcher = find_portableapps_launcher(dll)
+    if portableapps_launcher is not None:
+        return portableapps_launcher
     chrome = dll.with_name("chrome.exe")
     if not chrome.is_file():
         raise PatchError(f"chrome.exe was not found beside the patched DLL: {chrome}")
@@ -589,7 +600,10 @@ def interactive_main(recipes: list[dict]) -> int:
         return 0
     apply_recipe(dll, recipe)
     launcher = write_launcher(dll)
-    print(f"Launcher created: {launcher}")
+    if launcher.name.lower() == "googlechromeportable.exe":
+        print(f"PortableApps launcher ready: {launcher}")
+    else:
+        print(f"Launcher created: {launcher}")
     print("Use that launcher so regular installed Chrome cannot capture the launch.")
     return 0
 

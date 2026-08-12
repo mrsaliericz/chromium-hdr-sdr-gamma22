@@ -49,6 +49,15 @@ class RecipeTests(unittest.TestCase):
             self.assertIn('--user-data-dir="%GAMMA22_PROFILE%"', content)
             self.assertIn('"%~dp0chrome.exe"', content)
 
+    def test_portableapps_launcher_is_reused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            launcher = root / "GoogleChromePortable.exe"
+            launcher.touch()
+            dll = root / "App" / "Chrome-bin" / "150.0.0.0" / "chrome.dll"
+            dll.parent.mkdir(parents=True)
+            self.assertEqual(patcher.write_launcher(dll), launcher)
+
 
 if __name__ == "__main__":
     unittest.main()
