@@ -210,6 +210,79 @@ verified original-DLL backup before changing anything. Windows may show a
 SmartScreen warning because this community-built EXE is not code-signed; do
 not disable Windows security, and compare the release SHA-256 if in doubt.
 
+### Make the patched Chrome or Edge your default browser
+
+Windows 11 will not offer an arbitrary portable EXE as a default browser until
+it has been registered. The included
+[`tools/register_default_browser.ps1`](tools/register_default_browser.ps1)
+creates a separate, per-user registration named **Chrome Gamma 2.2** or
+**Edge Gamma 2.2**. It does not modify Chrome's `ChromeHTML`, Edge's
+`MSEdgeHTM`, the installed browser, or machine-wide registry keys. Administrator
+rights are not required. It follows Microsoft's documented
+[Default Programs registration](https://learn.microsoft.com/en-us/windows/win32/shell/default-programs)
+and [per-user Default Apps deep link](https://learn.microsoft.com/en-us/windows/apps/develop/launch/launch-default-apps-settings).
+
+Download the script (or run it from a cloned repository), then use the example
+that matches your browser. Change the paths to your actual portable folder.
+
+For an isolated Edge copy:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\register_default_browser.ps1 `
+  -Browser Edge `
+  -ExecutablePath 'C:\Users\Public\EdgeGamma22Portable\Application\msedge.exe' `
+  -ProfileDirectory 'C:\Users\Public\EdgeGamma22Portable\EdgeGamma22Profile'
+```
+
+For Google Chrome Portable by PortableApps.com, register its launcher. Do not
+add `-ProfileDirectory`; the PortableApps launcher already selects its portable
+profile:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\register_default_browser.ps1 `
+  -Browser Chrome `
+  -ExecutablePath 'C:\PortableApps\GoogleChromePortable\GoogleChromePortable.exe'
+```
+
+For a raw extracted Chrome or Chrome for Testing copy, register `chrome.exe`
+and provide its isolated profile explicitly:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\register_default_browser.ps1 `
+  -Browser Chrome `
+  -ExecutablePath 'C:\Browsers\chrome-win64\chrome.exe' `
+  -ProfileDirectory 'C:\Browsers\ChromeGamma22Profile'
+```
+
+The script opens **Settings → Apps → Default apps** on the new browser's page.
+Clear the optional **Pin to Start** and **Pin to taskbar** checkboxes if you
+already have a working portable shortcut, then click **Set default**. Windows
+protects the final user choice, so the script deliberately does not try to
+write or bypass the protected `UserChoice` hash.
+
+This sets `HTTP`, `HTTPS`, `.htm`, `.html` and `.shtml`. PDF is intentionally
+left unchanged. Verify `edge://version` or `chrome://version` after opening an
+external link: both **Executable Path** and **Profile Path** must point to the
+patched portable copy. Links using the Windows-specific `microsoft-edge:`
+protocol may still open the normally installed Edge; ordinary web links use
+the selected default browser.
+
+The registration keeps working while the executable and profile stay at the
+same paths. Keep the portable browser patched to a currently supported,
+security-updated build before using it for all external links.
+
+To undo the change, first select another default browser in Windows Settings.
+Then remove only the custom per-user registration:
+
+```powershell
+# Choose Chrome here if that is the copy you registered.
+powershell -ExecutionPolicy Bypass -File .\tools\register_default_browser.ps1 `
+  -Browser Edge -Unregister
+```
+
+The script refuses to unregister while its custom ProgID is still selected,
+preventing a broken default association.
+
 ### Python / command-line method
 
 Python 3.9 or newer is required for this method. The prebuilt release can use
@@ -251,6 +324,46 @@ SDR-through-DWM correction.
 
 In short: leave `dwm_eotf` enabled for other applications; it can coexist with
 this browser patch without double-correcting the browser image.
+
+### SDR browser video and NVIDIA RTX Video HDR
+
+Ordinary web-page SDR and SDR video are not always rendered through exactly
+the same Chromium path. SDR video is commonly decoded as limited-range YUV
+with BT.709 primaries, transfer and matrix, and it may use a dedicated hardware
+video surface. The patch guarantees its audited ordinary BT.709+sRGB RGB path;
+it should not be described as a universal gamma override for every SDR video
+decoder, codec or presentation path.
+
+If **NVIDIA RTX Video HDR** is enabled, the distinction is especially
+important. NVIDIA documents that RTX Video HDR converts supported SDR browser
+video into HDR10 in real time in current Chrome and Edge. In that configuration:
+
+- this patch keeps the surrounding SDR web page at gamma 2.2;
+- RTX Video HDR handles the SDR video's separate SDR-to-HDR tone mapping;
+- native HDR video is not processed by RTX Video HDR and remains on Chromium's
+  unchanged native HDR path.
+
+This combination has been visually verified with SDR and native-HDR YouTube
+playback. It is a useful optional setup, but RTX-processed SDR video is
+**synthetic HDR**, not creator-authored native HDR and not a pure gamma 2.2 SDR
+reference.
+
+When showing or hiding player controls, a brief gamma/brightness transition of
+only a few frames may occasionally be visible. Testing showed this transition
+only with RTX Video HDR active, consistent with a short video-surface or filter
+reconfiguration; it is not a persistent page-gamma switch. NVIDIA also states
+that enabling RTX Video automatically disables Multiplane Overlay (MPO), so the
+exact internal transition should not be assumed to be a normal MPO promotion.
+
+To determine whether the browser patch itself affects a particular SDR video
+path, disable **RTX Video HDR**, restart the browser, confirm `Color: bt709` in
+YouTube's **Stats for nerds**, and compare again. NVIDIA App can display a
+real-time RTX Video status indicator. On Edge, NVIDIA recommends disabling
+Edge's own **Enhance videos** option when using NVIDIA RTX Video.
+
+See NVIDIA's official
+[RTX Video FAQ](https://nvidia.custhelp.com/app/answers/detail/a_id/5448/~/rtx-video-faq)
+for current compatibility, exclusions and status-indicator instructions.
 
 The patcher creates `chrome.dll.gamma22-original` or
 `msedge.dll.gamma22-original` beside the DLL before the first write. Restore it
