@@ -509,11 +509,96 @@ def resolve_dll(path: Path) -> Path:
     raise PatchError(f"More than one chrome.dll found under: {path}")
 
 
+def write_launcher(dll: Path) -> Path:
+    chrome = dll.with_name("chrome.exe")
+    if not chrome.is_file():
+        raise PatchError(f"chrome.exe was not found beside the patched DLL: {chrome}")
+    launcher = dll.with_name("Start Chrome Gamma22.cmd")
+    content = (
+        "@echo off\r\n"
+        'set "GAMMA22_PROFILE=%PUBLIC%\\ChromeGamma22PortableProfile"\r\n'
+        'start "Chrome Gamma22" "%~dp0chrome.exe" '
+        '--user-data-dir="%GAMMA22_PROFILE%" --no-first-run '
+        '--disable-default-apps\r\n'
+    )
+    with launcher.open("w", encoding="utf-8", newline="") as stream:
+        stream.write(content)
+    return launcher
+
+
+def interactive_main(recipes: list[dict]) -> int:
+    print("Chromium HDR SDR Gamma 2.2 patcher")
+    print("====================================")
+    print("This tool supports only exact, audited Chrome for Testing builds.")
+    print("Installed Chrome/Edge under Program Files is always refused.\n")
+
+    search_roots = [Path.cwd()]
+    if getattr(sys, "frozen", False):
+        search_roots.insert(0, Path(sys.executable).resolve().parent)
+    candidates: list[Path] = []
+    for root in search_roots:
+        try:
+            candidate = resolve_dll(root)
+        except PatchError:
+            continue
+        if candidate.resolve() not in [item.resolve() for item in candidates]:
+            candidates.append(candidate)
+
+    if len(candidates) == 1:
+        dll = candidates[0]
+    else:
+        print("Place Gamma22Patcher.exe beside chrome.exe, or paste the path")
+        print("to the extracted chrome-win64 folder / chrome.dll below.")
+        entered = input("Chrome path: ").strip().strip('"')
+        if not entered:
+            print("Cancelled.")
+            return 0
+        dll = resolve_dll(Path(entered))
+
+    recipe = choose_recipe(dll, recipes, allow_backup=True)
+    state, details = patch_state(dll, recipe)
+    print(f"\nSupported build: {recipe['product']} {recipe['version']}")
+    print(f"Target: {dll}")
+    print(f"State: {state}")
+    for detail in details:
+        print(f"  {detail}")
+
+    print("\n[A] Apply gamma 2.2 patch")
+    print("[V] Verify only")
+    print("[R] Restore original DLL")
+    print("[Q] Quit")
+    choice = input("Choose: ").strip().lower()
+    if choice == "q" or not choice:
+        print("Cancelled; no changes made.")
+        return 0
+    if choice == "v":
+        verify(dll, recipe)
+        return 0
+    if choice == "r":
+        confirm = input("Type RESTORE to replace chrome.dll from its backup: ").strip()
+        if confirm != "RESTORE":
+            print("Cancelled; no changes made.")
+            return 0
+        restore(dll, recipe)
+        return 0
+    if choice != "a":
+        raise PatchError(f"Unknown choice: {choice!r}")
+    confirm = input("Type APPLY to patch this portable Chrome copy: ").strip()
+    if confirm != "APPLY":
+        print("Cancelled; no changes made.")
+        return 0
+    apply_recipe(dll, recipe)
+    launcher = write_launcher(dll)
+    print(f"Launcher created: {launcher}")
+    print("Use that launcher so regular installed Chrome cannot capture the launch.")
+    return 0
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Patch a supported portable Chrome DLL for SDR gamma 2.2 in Windows HDR."
     )
-    parser.add_argument("action", choices=("apply", "verify", "restore", "list"))
+    parser.add_argument("action", nargs="?", choices=("apply", "verify", "restore", "list"))
     parser.add_argument("path", nargs="?", type=Path, help="chrome.dll or extracted Chrome directory")
     parser.add_argument("--recipes", type=Path, default=DEFAULT_RECIPES)
     return parser.parse_args()
@@ -523,6 +608,11 @@ def main() -> int:
     args = parse_args()
     try:
         recipes = load_recipes(args.recipes)
+        if args.action is None:
+            result = interactive_main(recipes)
+            if sys.stdin.isatty():
+                input("\nPress Enter to close...")
+            return result
         if args.action == "list":
             for recipe in recipes:
                 print(

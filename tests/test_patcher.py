@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import tempfile
 import unittest
 
 import gamma22_patcher as patcher
@@ -37,6 +38,16 @@ class RecipeTests(unittest.TestCase):
             value = self.recipe[key]
             self.assertEqual(len(value), 64)
             int(value, 16)
+
+    def test_launcher_uses_isolated_public_profile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "chrome.exe").touch()
+            launcher = patcher.write_launcher(root / "chrome.dll")
+            content = launcher.read_text(encoding="utf-8")
+            self.assertIn("%PUBLIC%\\ChromeGamma22PortableProfile", content)
+            self.assertIn('--user-data-dir="%GAMMA22_PROFILE%"', content)
+            self.assertIn('"%~dp0chrome.exe"', content)
 
 
 if __name__ == "__main__":

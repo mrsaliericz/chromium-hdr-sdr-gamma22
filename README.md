@@ -35,9 +35,28 @@ patched BT.709+sRGB construction pattern.
 
 ## Usage
 
-Requirements: Windows 11 x64, Windows HDR enabled, and Python 3.9 or newer.
-Prebuilt releases can use `Gamma22Patcher.exe` in place of
-`python .\gamma22_patcher.py`.
+Requirements: Windows 11 x64 and Windows HDR enabled.
+
+### Easy EXE method
+
+1. Download the exact official
+   [Chrome for Testing 151.0.7922.138 win64 ZIP](https://storage.googleapis.com/chrome-for-testing-public/151.0.7922.138/win64/chrome-win64.zip)
+   and extract it.
+2. Download `Gamma22Patcher.exe` from the
+   [latest GitHub Release](https://github.com/mrsaliericz/chromium-hdr-sdr-gamma22/releases/latest).
+3. Put `Gamma22Patcher.exe` beside the extracted `chrome.exe` and double-click it.
+4. Choose `A`, then type `APPLY` when asked.
+5. Start the browser using the newly created `Start Chrome Gamma22.cmd`.
+
+The EXE refuses unknown Chrome versions and installed browsers. It creates a
+verified original-DLL backup before changing anything. Windows may show a
+SmartScreen warning because this community-built EXE is not code-signed; do
+not disable Windows security, and compare the release SHA-256 if in doubt.
+
+### Python / command-line method
+
+Python 3.9 or newer is required for this method. The prebuilt release can use
+`Gamma22Patcher.exe` in place of `python .\gamma22_patcher.py`.
 
 1. Download and extract the official
    [Chrome for Testing win64 ZIP](https://googlechromelabs.github.io/chrome-for-testing/).
@@ -62,6 +81,19 @@ unpatched browser even though a different `chrome.exe` path was requested.
 For convenience, copy
 [`launcher/Start Chrome Gamma22.cmd`](launcher/Start%20Chrome%20Gamma22.cmd)
 beside the extracted `chrome.exe` and run that launcher.
+
+### Using it with dwm_eotf
+
+This patch works well alongside
+[`dwm_eotf`](https://github.com/ledoge/dwm_eotf), and running both at the same
+time is recommended when `dwm_eotf` is needed to correct SDR output from other
+Windows applications. The patched browser deliberately stays on Chromium's
+scRGB/F16 HDR presentation path, so its presented output is always HDR/scRGB.
+Its SDR content therefore remains gamma 2.2 and is not altered by `dwm_eotf`'s
+SDR-through-DWM correction.
+
+In short: leave `dwm_eotf` enabled for other applications; it can coexist with
+this browser patch without double-correcting the browser image.
 
 The patcher creates `chrome.dll.gamma22-original` beside the DLL before the
 first write. Restore it with:
