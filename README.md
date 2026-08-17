@@ -21,6 +21,55 @@ is enabled.
 The repository contains **no Chrome or Edge binaries**. Obtain the browser from
 Google or Microsoft and patch only your own extracted/isolated copy.
 
+## New: runtime tray beta
+
+[`Gamma22Tray.exe`](https://github.com/mrsaliericz/chromium-hdr-sdr-gamma22/releases/tag/v0.4.0-beta.1)
+is an experimental, non-destructive alternative for the normally installed
+64-bit Google Chrome and Microsoft Edge. It does **not** modify `chrome.dll` or
+`msedge.dll` on disk. Instead, it structurally verifies the installed browser
+and applies the SDR gamma/scRGB changes only to its running processes.
+
+The beta can attach to browsers that are already open and continues watching
+new browser and GPU processes, so new windows and tabs remain corrected. One
+tray application can watch both Chrome and Edge simultaneously.
+
+1. Download `Gamma22Tray.exe` from the beta release.
+2. Run it normally — do not use **Run as administrator**.
+3. Start or continue using the normally installed Chrome or Edge.
+4. Right-click the tray icon to disable or enable the fix. The icon is colored
+   while enabled and gray while disabled. **Open diagnostic log** shows detailed
+   detection and patch status.
+
+Turning the fix off restores the upstream code and cached SDR color object in
+the running browser. Exiting the tray application does not undo memory already
+changed in an existing process; choose **Disable Gamma 2.2 fix** first, or close
+the browser. All in-memory changes disappear naturally when the browser exits.
+
+This beta was tested with Chrome `151.0.7922.138` and Edge `151.0.4129.86` on
+Windows 11 x64. Its detector is structural rather than tied to one file hash,
+so it may survive browser updates, but this is not guaranteed. An unfamiliar
+layout is rejected without writing anything. Native HDR video, PQ, HLG and
+Display-P3 remain on their original Chromium paths.
+
+> **Security notice:** this unsigned experimental tool attaches as a debugger
+> and writes to Chrome/Edge process memory. Antivirus products may therefore
+> report a heuristic false positive. Download it only from this repository,
+> verify the published SHA-256, inspect the source and build it yourself if in
+> doubt. Never disable Windows security merely to run it.
+
+To build the beta from source with Python 3.9 or newer:
+
+```powershell
+python -m pip install pyinstaller
+.\build_hot_attach_exe.ps1
+```
+
+The resulting file is `dist\Gamma22Tray.exe`. The build script also regenerates
+the colored and disabled tray icon variants from the included source artwork.
+
+The original hash-locked portable patcher remains the stable release and is
+documented below.
+
 ## Supported build
 
 - Google Chrome Portable by PortableApps.com `150.0.7871.187`, win64

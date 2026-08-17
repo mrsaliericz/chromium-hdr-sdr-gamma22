@@ -25,6 +25,27 @@ BACKUP_SUFFIX = ".gamma22-original"
 PATCH_KIND_LOADS_TRAMPOLINE = "loads-trampoline"
 PATCH_KIND_EDGE_SINGLETON_USAGE_TABLE = "edge-singleton-usage-table"
 
+# Stable machine-code context around ScreenWin's first
+# SetOutputBufferFormats(ContentColorUsage::kWideColorGamut, ...) call.  The
+# five bytes immediately before the call are replaced by the trampoline hook.
+HDR_OUTPUT_HOOK_CONTEXT = bytes.fromhex(
+    "48 8D 8C 24 30 02 00 00 4C 8D 8C 24 60 06 00 00 "
+    "B2 01 45 31 C0 E8"
+)
+HDR_OUTPUT_HOOK_OFFSET = 16
+HDR_OUTPUT_HOOK_ORIGINAL = bytes.fromhex("B2 01 45 31 C0")
+
+# This exact helper signature is deliberately strict.  It is the small method
+# that writes one DisplayColorSpaces output tuple.  Refusing an unfamiliar
+# implementation is safer than applying a plausible-looking runtime patch.
+HDR_OUTPUT_HELPER_BYTES = bytes.fromhex(
+    "56 57 48 89 C8 80 FA 02 74 12 0F B6 CA 83 F9 01 74 14 "
+    "85 C9 75 3D 41 0F B6 D0 EB 12 41 0F B6 D0 48 83 CA 04 "
+    "EB 08 41 0F B6 D0 48 83 CA 02 4C 8B 44 24 38 89 D1 C1 "
+    "E1 06 8D 3C 91 48 01 C7 B9 11 00 00 00 4C 89 CE F3 A5 "
+    "4C 89 84 D0 98 01 00 00 5F 5E C3"
+)
+
 SRGB_TRANSFER_FUNCTION = bytes.fromhex(
     "9A 99 19 40 6E A7 72 3F 19 89 55 3D 91 83 9E 3D "
     "E6 AE 25 3D 00 00 00 00 00 00 00 00"
@@ -227,6 +248,167 @@ def find_rip_movups_refs(text: bytes, text_rva: int, target_rva: int) -> list[in
     return result
 
 
+def find_initializer_loads_in_text(
+    text: bytes,
+    text_rva: int,
+    transfer_rva: int,
+    gamut_rva: int,
+) -> list[tuple[int, int]]:
+    """Return strict BT.709+sRGB initializer load pairs in one .text image."""
+    first_refs = find_rip_movups_refs(text, text_rva, transfer_rva)
+    second_refs = set(find_rip_movups_refs(text, text_rva, transfer_rva + 12))
+    gamut_refs = set(find_rip_movups_refs(text, text_rva, gamut_rva))
+    pairs: list[tuple[int, int]] = []
+    for first in first_refs:
+        seconds = [rva for rva in second_refs if first < rva < first + 48]
+        gamuts = [rva for rva in gamut_refs if first < rva < first + 48]
+        if len(seconds) == 1 and len(gamuts) == 1 and seconds[0] < gamuts[0]:
+            pairs.append((first, seconds[0]))
+    return pairs
+
+
+def find_all_rvas(
+    path: Path,
+    sections: list[tuple[str, int, int, int, int]],
+    needle: bytes,
+) -> list[int]:
+    """Find an exact byte string in PE section data and return its RVAs."""
+    found: list[int] = []
+    with path.open("rb") as stream:
+        for _name, virtual_address, _virtual_size, raw_offset, raw_size in sections:
+            stream.seek(raw_offset)
+            data = stream.read(raw_size)
+            position = 0
+            while True:
+                position = data.find(needle, position)
+                if position < 0:
+                    break
+                found.append(virtual_address + position)
+                position += 1
+    return found
+
+
+def discover_chrome_runtime_layout(path: Path) -> dict:
+    """Discover the Chrome gamma and HDR output patch points structurally.
+
+    This deliberately has no version fallback.  Every relationship must be
+    unique and must pass the same semantic checks as a hand-authored recipe.
+    It currently recognizes the stable layout in official Chrome 150-152.
+    """
+    sections = read_pe_sections(path)
+    try:
+        _name, text_rva, _virtual_size, text_offset, text_size = next(
+            section for section in sections if section[0] == ".text"
+        )
+    except StopIteration as error:
+        raise PatchError("PE file has no .text section") from error
+    with path.open("rb") as stream:
+        stream.seek(text_offset)
+        text = stream.read(text_size)
+
+    gamut_constants = find_all_rvas(path, sections, SRGB_GAMUT)
+    srgb_constants = find_all_rvas(path, sections, SRGB_TRANSFER_FUNCTION)
+    gamma_constants = find_all_rvas(path, sections, GAMMA22_TRANSFER_FUNCTION)
+
+    candidates: list[dict] = []
+    for srgb_rva in srgb_constants:
+        nearby_gamuts = [
+            rva for rva in gamut_constants if 0 < srgb_rva - rva <= 0x60
+        ]
+        nearby_gammas = [
+            rva for rva in gamma_constants if 0 < rva - srgb_rva <= 0x60
+        ]
+        for gamut_rva in nearby_gamuts:
+            for gamma_rva in nearby_gammas:
+                pairs = find_initializer_loads_in_text(
+                    text, text_rva, srgb_rva, gamut_rva
+                )
+                # Chrome 150-152 contain 47-49 instances.  The lower bound is
+                # intentionally generous for future dead-code elimination but
+                # high enough to reject incidental constant references.
+                if len(pairs) >= 32:
+                    candidates.append(
+                        {
+                            "srgb_gamut_rva": gamut_rva,
+                            "srgb_transfer_rva": srgb_rva,
+                            "gamma22_transfer_rva": gamma_rva,
+                            "initializer_pairs": pairs,
+                        }
+                    )
+    if len(candidates) != 1:
+        raise PatchError(
+            "Runtime discovery expected one canonical BT.709/sRGB initializer "
+            f"group, found {len(candidates)}"
+        )
+
+    hook_positions: list[int] = []
+    position = 0
+    while True:
+        position = text.find(HDR_OUTPUT_HOOK_CONTEXT, position)
+        if position < 0:
+            break
+        hook_positions.append(position)
+        position += 1
+    if len(hook_positions) != 1:
+        raise PatchError(
+            "Runtime discovery expected one ScreenWin HDR output hook, "
+            f"found {len(hook_positions)}"
+        )
+
+    hook_rva = text_rva + hook_positions[0] + HDR_OUTPUT_HOOK_OFFSET
+    resume_rva = hook_rva + len(HDR_OUTPUT_HOOK_ORIGINAL)
+    call_offset = resume_rva - text_rva
+    if text[call_offset] != 0xE8:
+        raise PatchError("ScreenWin hook is not followed by the expected call")
+    call_displacement = struct.unpack_from("<i", text, call_offset + 1)[0]
+    helper_rva = resume_rva + 5 + call_displacement
+    with path.open("rb") as stream:
+        helper = read_at(
+            stream,
+            rva_to_offset(sections, helper_rva),
+            len(HDR_OUTPUT_HELPER_BYTES),
+        )
+    if helper != HDR_OUTPUT_HELPER_BYTES:
+        raise PatchError("ScreenWin output helper does not match the safe signature")
+
+    # Chrome 150-152 each contain one exact 97-byte INT3 padding run.  The
+    # audited disk recipes use the aligned final 96 bytes of that same run.
+    # Requiring the exact bounded run avoids choosing arbitrary function
+    # padding merely because it happens to be large enough.
+    cave_positions: list[int] = []
+    cave_needle = b"\xCC" * 97
+    position = 0
+    while True:
+        position = text.find(cave_needle, position)
+        if position < 0:
+            break
+        before = text[position - 1] if position else None
+        after_index = position + len(cave_needle)
+        after = text[after_index] if after_index < len(text) else None
+        if before != 0xCC and after != 0xCC:
+            cave_positions.append(position)
+        position += 1
+    if len(cave_positions) != 1:
+        raise PatchError(
+            "Runtime discovery expected one exact 97-byte executable code cave, "
+            f"found {len(cave_positions)}"
+        )
+    cave_rva = text_rva + cave_positions[0] + 1
+
+    result = candidates[0]
+    result.update(
+        {
+            "hook_rva": hook_rva,
+            "hook_original": HDR_OUTPUT_HOOK_ORIGINAL,
+            "resume_rva": resume_rva,
+            "set_output_call_rva": helper_rva,
+            "cave_rva": cave_rva,
+            "cave_size": 96,
+        }
+    )
+    return result
+
+
 def find_initializer_loads(
     path: Path,
     sections: list[tuple[str, int, int, int, int]],
@@ -244,15 +426,9 @@ def find_initializer_loads(
         stream.seek(text_offset)
         text = stream.read(text_size)
 
-    first_refs = find_rip_movups_refs(text, text_rva, transfer_rva)
-    second_refs = set(find_rip_movups_refs(text, text_rva, transfer_rva + 12))
-    gamut_refs = set(find_rip_movups_refs(text, text_rva, gamut_rva))
-    pairs: list[tuple[int, int]] = []
-    for first in first_refs:
-        seconds = [rva for rva in second_refs if first < rva < first + 48]
-        gamuts = [rva for rva in gamut_refs if first < rva < first + 48]
-        if len(seconds) == 1 and len(gamuts) == 1 and seconds[0] < gamuts[0]:
-            pairs.append((first, seconds[0]))
+    pairs = find_initializer_loads_in_text(
+        text, text_rva, transfer_rva, gamut_rva
+    )
     if len(pairs) != expected_count:
         raise PatchError(
             "Unexpected number of strict sRGB+BT.709 initializers: "
