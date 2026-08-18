@@ -43,18 +43,19 @@ jobs:
           $hash = (Get-FileHash -LiteralPath "dist/Gamma22Tray.exe" -Algorithm SHA256).Hash
           $notes = Join-Path $env:RUNNER_TEMP "release-notes.md"
           Copy-Item -LiteralPath $sourceNotes -Destination $notes
-          Add-Content -LiteralPath $notes -Value @"
-
-          ### Release binary
-
-          SHA-256 (`Gamma22Tray.exe`):
-
-          ``$hash``
-
-          Built by GitHub Actions from source commit ``$env:GITHUB_SHA``.
-          "@
+          $releaseDetails = @(
+            "",
+            "### Release binary",
+            "",
+            "SHA-256 (Gamma22Tray.exe):",
+            "",
+            $hash,
+            "",
+            "Built by GitHub Actions from source commit $env:GITHUB_SHA."
+          )
+          Add-Content -LiteralPath $notes -Value $releaseDetails
           gh release create $tag "dist/Gamma22Tray.exe#Gamma22Tray.exe" `
             --verify-tag `
             --prerelease `
-            --title "Gamma22Tray $tag — runtime tray beta" `
+            --title "Gamma22Tray $tag - runtime tray beta" `
             --notes-file $notes
