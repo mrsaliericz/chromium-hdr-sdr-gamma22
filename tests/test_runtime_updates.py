@@ -54,8 +54,8 @@ class RuntimeUpdateTests(unittest.TestCase):
             self.assertEqual(update[0], "updated")
             self.assertEqual(registry.active_dll, second.resolve())
             self.assertEqual(len(registry.plans_by_dll), 2)
-            self.assertIn(hot.normalized_path(first), registry.plans_by_dll)
-            self.assertIn(hot.normalized_path(second), registry.plans_by_dll)
+            self.assertIn(hot.normalized_path(first.resolve()), registry.plans_by_dll)
+            self.assertIn(hot.normalized_path(second.resolve()), registry.plans_by_dll)
 
     def test_in_place_replacement_keeps_both_memory_generations(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -71,7 +71,7 @@ class RuntimeUpdateTests(unittest.TestCase):
 
             update = registry.poll(force=True)
 
-            key = hot.normalized_path(first)
+            key = hot.normalized_path(first.resolve())
             self.assertEqual(update[0], "updated")
             self.assertEqual(len(registry.plans_by_dll[key]), 2)
 
