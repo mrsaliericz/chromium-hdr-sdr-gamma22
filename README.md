@@ -6,6 +6,12 @@
 > [buy me a coffee ☕](https://buymeacoffee.com/mrsaliericze) — but donating is
 > entirely optional and the patcher is and always will be free.
 
+> **New runtime beta:** The latest [`Gamma22Tray.exe`](https://github.com/mrsaliericz/chromium-hdr-sdr-gamma22/releases/tag/v0.4.0-beta.2)
+> works with the current standard installed versions of both **Google Chrome**
+> and **Microsoft Edge**. A portable browser copy is no longer required. Run
+> the tray application normally and it will apply the fix to supported running
+> Chrome and Edge processes without modifying their files on disk.
+
 Experimental, fail-closed patcher for supported **64-bit Google Chrome and
 Microsoft Edge builds on Windows**, including normally branded Google Chrome
 Portable and an isolated copy of Microsoft Edge.
