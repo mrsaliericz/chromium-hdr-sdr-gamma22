@@ -434,25 +434,49 @@ def refresh_display_state(pids: set[int]) -> int:
     return delivered
 
 
-def attach_one(
+def module_matches_plan(process, module_base: int, plan) -> bool:
+    """Return whether one loaded module safely matches a cached runtime plan."""
+    try:
+        for _label, rva, expected in plan.checks:
+            if read_memory(process, module_base + rva, len(expected)) != expected:
+                return False
+        for item in plan.writes:
+            current = read_memory(process, module_base + item.rva, len(item.original))
+            if current not in (item.original, item.patched):
+                return False
+    except (OSError, PatchError):
+        return False
+    return True
+
+
+def matching_plans_for_module(process, module_base: int, plans) -> list:
+    """Select structurally valid plans for a module whose file handle is absent."""
+    return [
+        plan
+        for plan in plans
+        if module_matches_plan(process, module_base, plan)
+    ]
+
+
+def attach_one_multi(
     pid: int,
-    plan,
-    expected_dll: str,
+    plans_by_dll: dict[str, list],
     *,
     role: str = "other",
     enabled: bool = True,
     restore_live: bool = False,
-) -> tuple[bool, str]:
-    """Attach, patch one suspended process, consume its initial breakpoint, detach."""
+) -> tuple[bool, str, Path | None]:
+    """Attach once and select the correct DLL generation inside the process."""
     if not kernel32.DebugActiveProcess(pid):
-        return False, str(win_error(f"DebugActiveProcess({pid})"))
+        return False, str(win_error(f"DebugActiveProcess({pid})")), None
     if not kernel32.DebugSetProcessKillOnExit(False):
         kernel32.DebugActiveProcessStop(pid)
-        return False, str(win_error("DebugSetProcessKillOnExit(FALSE)"))
+        return False, str(win_error("DebugSetProcessKillOnExit(FALSE)")), None
 
     process_handle = None
     patched = False
     patch_state = "not patched"
+    observed_dll = None
     attached = True
     failure: str | None = None
     deadline = time.monotonic() + 10.0
@@ -484,31 +508,44 @@ def attach_one(
                     info = event.LoadDll
                     file_to_close = info.hFile
                     loaded_path = path_from_handle(info.hFile)
-                    is_target = bool(
-                        loaded_path and normalized_path(loaded_path) == expected_dll
-                    )
-                    if not is_target and process_handle:
+                    candidates = []
+                    if loaded_path is not None:
+                        loaded_key = normalized_path(loaded_path)
+                        candidates = plans_by_dll.get(loaded_key, [])
+                        if (
+                            not candidates
+                            and loaded_path.name.lower() in {"chrome.dll", "msedge.dll"}
+                        ):
+                            observed_dll = loaded_path
+                    if candidates and process_handle:
+                        # A path may represent more than one in-memory generation
+                        # if an updater replaced a file in place. Validate every
+                        # candidate against the suspended module before writing.
+                        candidates = matching_plans_for_module(
+                            process_handle, int(info.lpBaseOfDll), candidates
+                        )
+                        if not candidates:
+                            # The same on-disk path may now name a replacement
+                            # generation while an older plan remains cached.
+                            observed_dll = loaded_path
+                    if not candidates and loaded_path is None and process_handle:
                         # During DebugActiveProcess attach, sandboxed Chrome
                         # processes commonly report existing modules without a
-                        # usable hFile. Identify chrome.dll by requiring every
-                        # version-independent constant/helper signature at its
-                        # discovered RVA. An unrelated module cannot pass this.
-                        try:
-                            module_base = int(info.lpBaseOfDll)
-                            is_target = all(
-                                read_memory(
-                                    process_handle,
-                                    module_base + rva,
-                                    len(expected),
-                                )
-                                == expected
-                                for _label, rva, expected in plan.checks
-                            )
-                        except (OSError, PatchError):
-                            is_target = False
-                    if is_target:
+                        # usable hFile. Match the entire checked/write layout.
+                        all_plans = [
+                            plan
+                            for generation_plans in plans_by_dll.values()
+                            for plan in generation_plans
+                        ]
+                        candidates = matching_plans_for_module(
+                            process_handle, int(info.lpBaseOfDll), all_plans
+                        )
+                    if candidates:
                         if not process_handle:
                             raise PatchError(f"PID {pid}: missing debug process handle")
+                        # When two cached generations are byte-for-byte layout
+                        # compatible either is safe; prefer the newest inserted.
+                        plan = candidates[-1]
                         patch_state = reconcile_module_for_role(
                             process_handle,
                             pid,
@@ -530,6 +567,10 @@ def attach_one(
                                 f"; {'restored' if restore_live or not enabled or role != 'gpu' else 'patched'} "
                                 f"{len(live_objects)} live cached sRGB object(s)"
                             )
+                        patch_state = (
+                            f"generation={plan.dll.parent.name}/{plan.dll_hash[:12]}, "
+                            f"{patch_state}"
+                        )
                         patched = True
                 elif event.dwDebugEventCode == EXCEPTION_DEBUG_EVENT:
                     code = int(event.Exception.ExceptionRecord.ExceptionCode)
@@ -557,10 +598,36 @@ def attach_one(
         close_handle(process_handle)
 
     if failure:
-        return False, failure
+        return False, failure, observed_dll
     if not patched:
-        return False, "chrome.dll was not observed before the initial breakpoint"
-    return True, patch_state
+        if observed_dll is not None:
+            return (
+                False,
+                f"unrecognized browser DLL generation: {observed_dll}",
+                observed_dll,
+            )
+        return False, "browser DLL was not observed before the initial breakpoint", None
+    return True, patch_state, observed_dll
+
+
+def attach_one(
+    pid: int,
+    plan,
+    expected_dll: str,
+    *,
+    role: str = "other",
+    enabled: bool = True,
+    restore_live: bool = False,
+) -> tuple[bool, str]:
+    """Backward-compatible single-generation attach used by the CLI tools."""
+    success, detail, _observed = attach_one_multi(
+        pid,
+        {expected_dll: [plan]},
+        role=role,
+        enabled=enabled,
+        restore_live=restore_live,
+    )
+    return success, detail
 
 
 def attach_and_patch(

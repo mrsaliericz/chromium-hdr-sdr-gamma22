@@ -6,7 +6,10 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes
 from pathlib import Path
+import sys
 import threading
+import time
+import winreg
 
 import hot_attach_gamma22 as hot
 
@@ -29,6 +32,7 @@ NIF_ICON = 0x02
 NIF_TIP = 0x04
 MF_STRING = 0
 MF_GRAYED = 0x01
+MF_CHECKED = 0x08
 MF_SEPARATOR = 0x0800
 TPM_RIGHTBUTTON = 0x0002
 TPM_RETURNCMD = 0x0100
@@ -40,6 +44,17 @@ CMD_STATUS = 100
 CMD_LOG = 101
 CMD_EXIT = 102
 CMD_TOGGLE = 103
+CMD_AUTOSTART = 104
+CMD_ABOUT = 105
+UPDATE_POLL_SECONDS = 5.0
+FAILED_GENERATION_RETRY_SECONDS = 30.0
+APP_NAME = "Gamma22Tray"
+APP_VERSION = "0.4.0-beta.2"
+APP_AUTHOR = "Jaroslav Safar"
+APP_EMAIL = "jaroslav.safar.91@gmail.com"
+APP_URL = "https://github.com/mrsaliericz/chromium-hdr-sdr-gamma22"
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+RUN_VALUE_NAME = "Gamma22Tray"
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 shell32 = ctypes.WinDLL("shell32", use_last_error=True)
@@ -154,6 +169,13 @@ user32.DestroyMenu.argtypes = [wintypes.HMENU]
 user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
 user32.SetForegroundWindow.argtypes = [wintypes.HWND]
 user32.DestroyWindow.argtypes = [wintypes.HWND]
+user32.MessageBoxW.argtypes = [
+    wintypes.HWND,
+    wintypes.LPCWSTR,
+    wintypes.LPCWSTR,
+    wintypes.UINT,
+]
+user32.MessageBoxW.restype = ctypes.c_int
 user32.PostMessageW.argtypes = [
     wintypes.HWND,
     wintypes.UINT,
@@ -200,6 +222,105 @@ active_icon = None
 inactive_icon = None
 owned_icons: set[int] = set()
 log_path = None
+
+
+class BrowserGenerations:
+    """Cache verified runtime plans across browser update transitions."""
+
+    def __init__(self, browser: Path, *, locator=None, planner=None, clock=None):
+        self.browser = browser.resolve()
+        self._locator = locator or hot.locate_chrome_dll
+        self._planner = planner or hot.make_runtime_plan
+        self._clock = clock or time.monotonic
+        self.plans_by_dll: dict[str, list] = {}
+        self._plans_by_identity: dict[tuple[str, int, int], object] = {}
+        self._failed_identities: dict[tuple[str, int, int], tuple[float, str]] = {}
+        self.active_identity: tuple[str, int, int] | None = None
+        self.active_dll: Path | None = None
+        self.active_error: str | None = None
+        self.next_poll = 0.0
+
+    def _validated_identity(self, dll: Path) -> tuple[Path, tuple[str, int, int]]:
+        resolved = dll.resolve(strict=True)
+        expected_name = "msedge.dll" if self.browser.name.lower() == "msedge.exe" else "chrome.dll"
+        if resolved.name.lower() != expected_name:
+            raise hot.PatchError(f"Unexpected browser DLL name: {resolved}")
+        try:
+            resolved.relative_to(self.browser.parent.resolve())
+        except ValueError as error:
+            raise hot.PatchError(
+                f"Refusing browser DLL outside {self.browser.parent}: {resolved}"
+            ) from error
+        stat = resolved.stat()
+        return resolved, (
+            hot.normalized_path(resolved),
+            int(stat.st_size),
+            int(stat.st_mtime_ns),
+        )
+
+    def register(self, dll: Path):
+        resolved, identity = self._validated_identity(dll)
+        existing = self._plans_by_identity.get(identity)
+        if existing is not None:
+            return existing, False
+
+        now = self._clock()
+        failed = self._failed_identities.get(identity)
+        if failed is not None and now < failed[0]:
+            raise hot.PatchError(failed[1])
+        try:
+            plan = self._planner(resolved)
+        except Exception as error:
+            message = str(error)
+            self._failed_identities[identity] = (
+                now + FAILED_GENERATION_RETRY_SECONDS,
+                message,
+            )
+            raise
+
+        self._failed_identities.pop(identity, None)
+        self._plans_by_identity[identity] = plan
+        key = identity[0]
+        self.plans_by_dll.setdefault(key, []).append(plan)
+        return plan, True
+
+    def activate(self, dll: Path):
+        resolved, identity = self._validated_identity(dll)
+        plan, added = self.register(resolved)
+        changed = identity != self.active_identity
+        self.active_identity = identity
+        self.active_dll = resolved
+        self.active_error = None
+        return plan, added, changed
+
+    def poll(self, *, force: bool = False) -> tuple[str, str] | None:
+        now = self._clock()
+        if not force and now < self.next_poll:
+            return None
+        self.next_poll = now + UPDATE_POLL_SECONDS
+        try:
+            candidate = self._locator(self.browser, None)
+            _resolved, identity = self._validated_identity(candidate)
+            if identity == self.active_identity:
+                self.active_error = None
+                return None
+            previous = self.active_dll
+            plan, added, _changed = self.activate(candidate)
+        except Exception as error:
+            self.active_error = str(error)
+            return "error", self.active_error
+
+        old_version = previous.parent.name if previous is not None else "none"
+        new_version = self.active_dll.parent.name if self.active_dll is not None else "unknown"
+        action = "analyzed" if added else "selected cached"
+        return (
+            "updated",
+            f"{old_version} -> {new_version}; {action} generation {plan.dll_hash[:12]}",
+        )
+
+    def register_observed(self, dll: Path):
+        """Analyze a DLL observed in a live process during a mixed update."""
+        return self.register(dll)
 
 
 def set_status(value: str) -> None:
@@ -252,6 +373,83 @@ def open_log() -> None:
         shell32.ShellExecuteW(None, "open", str(log_path), None, None, SW_SHOWNORMAL)
 
 
+def autostart_command() -> str | None:
+    if not getattr(sys, "frozen", False):
+        return None
+    return f'"{Path(sys.executable).resolve()}"'
+
+
+def autostart_enabled() -> bool:
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            RUN_KEY,
+            0,
+            winreg.KEY_QUERY_VALUE,
+        ) as key:
+            value, _value_type = winreg.QueryValueEx(key, RUN_VALUE_NAME)
+            return bool(str(value).strip())
+    except FileNotFoundError:
+        return False
+
+
+def set_autostart(enabled: bool) -> None:
+    command = autostart_command()
+    if command is None:
+        raise RuntimeError("Start with Windows is available only in the packaged EXE")
+    if enabled:
+        with winreg.CreateKeyEx(
+            winreg.HKEY_CURRENT_USER,
+            RUN_KEY,
+            0,
+            winreg.KEY_SET_VALUE,
+        ) as key:
+            winreg.SetValueEx(key, RUN_VALUE_NAME, 0, winreg.REG_SZ, command)
+        return
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            RUN_KEY,
+            0,
+            winreg.KEY_SET_VALUE,
+        ) as key:
+            winreg.DeleteValue(key, RUN_VALUE_NAME)
+    except FileNotFoundError:
+        pass
+
+
+def toggle_autostart() -> None:
+    try:
+        enabled = not autostart_enabled()
+        set_autostart(enabled)
+        set_status(f"Start with Windows {'enabled' if enabled else 'disabled'}")
+    except Exception as error:
+        user32.MessageBoxW(
+            window_handle,
+            f"Could not change Start with Windows:\n\n{error}",
+            APP_NAME,
+            0x00000010,
+        )
+
+
+def show_about() -> None:
+    user32.MessageBoxW(
+        window_handle,
+        (
+            f"{APP_NAME}\n"
+            f"Version {APP_VERSION}\n\n"
+            "Windows HDR SDR gamma 2.2 runtime fix for Google Chrome "
+            "and Microsoft Edge.\n\n"
+            f"Author: {APP_AUTHOR}\n"
+            f"Contact: {APP_EMAIL}\n\n"
+            f"{APP_URL}\n\n"
+            "Free and open-source software."
+        ),
+        f"About {APP_NAME}",
+        0x00000040,
+    )
+
+
 def show_menu(hwnd) -> None:
     menu = user32.CreatePopupMenu()
     if not menu:
@@ -270,6 +468,16 @@ def show_menu(hwnd) -> None:
         toggle_flags = MF_STRING | (MF_GRAYED if switching else 0)
         user32.AppendMenuW(menu, toggle_flags, CMD_TOGGLE, toggle_label)
         user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
+        autostart_flags = MF_STRING
+        if autostart_enabled():
+            autostart_flags |= MF_CHECKED
+        if autostart_command() is None:
+            autostart_flags |= MF_GRAYED
+        user32.AppendMenuW(
+            menu, autostart_flags, CMD_AUTOSTART, "Start with Windows"
+        )
+        user32.AppendMenuW(menu, MF_STRING, CMD_ABOUT, f"About {APP_NAME}…")
+        user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
         user32.AppendMenuW(menu, MF_STRING, CMD_LOG, "Open diagnostic log")
         user32.AppendMenuW(menu, MF_STRING, CMD_EXIT, "Exit")
         point = wintypes.POINT()
@@ -286,6 +494,10 @@ def show_menu(hwnd) -> None:
         )
         if command == CMD_TOGGLE:
             request_fix_toggle()
+        elif command == CMD_AUTOSTART:
+            toggle_autostart()
+        elif command == CMD_ABOUT:
+            show_about()
         elif command == CMD_LOG:
             open_log()
         elif command == CMD_EXIT:
@@ -396,33 +608,31 @@ def worker() -> None:
         states[name] = "analyzing"
         publish_status()
         try:
+            generations = BrowserGenerations(browser)
             dll = hot.locate_chrome_dll(browser, None)
-            plan = hot.make_runtime_plan(dll)
-            expected_dll = hot.normalized_path(dll)
+            plan, _added, _changed = generations.activate(dll)
             current = set(hot.running_processes_for_executable(browser))
             completed: set[int] = set()
             enabled, _switching = fix_mode()
-            if current:
-                patched, already_debugged = hot.attach_and_patch(
-                    browser, dll, enabled=enabled
-                )
-                completed = patched | already_debugged
-                hot.refresh_display_state(current)
-                states[name] = "active" if enabled else "off"
-            else:
-                states[name] = "waiting" if enabled else "off"
+            states[name] = (
+                "applying" if enabled and current
+                else "waiting" if enabled
+                else "off"
+            )
             targets.append(
                 {
                     "name": name,
                     "browser": browser,
-                    "dll": dll,
-                    "plan": plan,
-                    "expected_dll": expected_dll,
+                    "generations": generations,
                     "completed": completed,
                     "failures": {},
+                    "last_update_error": None,
                 }
             )
-            print(f"{name}: watching {browser} ({dll.name}, {plan.dll_hash[:12]})")
+            print(
+                f"{name}: watching {browser} "
+                f"({dll.parent.name}/{dll.name}, {plan.dll_hash[:12]})"
+            )
         except Exception as error:
             states[name] = "unsupported/error"
             print(f"{name}: ERROR: {error}")
@@ -444,14 +654,30 @@ def worker() -> None:
         for target in targets:
             name = target["name"]
             browser = target["browser"]
+            generations = target["generations"]
             try:
+                update = generations.poll()
+                if update is not None:
+                    update_kind, update_detail = update
+                    if update_kind == "updated":
+                        target["last_update_error"] = None
+                        print(f"{name}: browser update detected: {update_detail}")
+                    elif update_detail != target["last_update_error"]:
+                        target["last_update_error"] = update_detail
+                        print(
+                            f"{name}: updated DLL is not currently supported; "
+                            f"will retry safely ({update_detail})"
+                        )
                 current = set(hot.running_processes_for_executable(browser))
                 target["completed"].intersection_update(current)
-                states[name] = (
-                    "active" if enabled and current
-                    else "waiting" if enabled
-                    else "off"
-                )
+                if generations.active_error is not None:
+                    states[name] = "unsupported update"
+                else:
+                    states[name] = (
+                        "active" if enabled and current
+                        else "waiting" if enabled
+                        else "off"
+                    )
                 for pid in sorted(current - target["completed"]):
                     try:
                         command_line = hot.process_command_line(pid)
@@ -470,10 +696,9 @@ def worker() -> None:
                         # their pristine upstream gamma behavior.
                         target["completed"].add(pid)
                         continue
-                    success, detail = hot.attach_one(
+                    success, detail, observed_dll = hot.attach_one_multi(
                         pid,
-                        target["plan"],
-                        target["expected_dll"],
+                        generations.plans_by_dll,
                         role=role,
                         enabled=enabled,
                     )
@@ -483,6 +708,23 @@ def worker() -> None:
                         print(f"{name}: new {role} PID {pid}: {detail}")
                         hot.refresh_display_state(current)
                     else:
+                        if observed_dll is not None:
+                            try:
+                                observed_plan, added = generations.register_observed(
+                                    observed_dll
+                                )
+                                if added:
+                                    target["failures"].pop(pid, None)
+                                    print(
+                                        f"{name}: discovered live update generation "
+                                        f"{observed_dll.parent.name}/"
+                                        f"{observed_plan.dll_hash[:12]}; retrying PID {pid}"
+                                    )
+                                    continue
+                            except Exception as error:
+                                detail = (
+                                    f"unsupported observed DLL {observed_dll}: {error}"
+                                )
                         attempts = target["failures"].get(pid, 0) + 1
                         target["failures"][pid] = attempts
                         if attempts == 1 or attempts % 10 == 0:

@@ -1,0 +1,60 @@
+name: Build runtime tray beta release
+
+on:
+  push:
+    tags:
+      - "v*-beta.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependency
+        run: python -m pip install --disable-pip-version-check pyinstaller==6.14.2
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build Gamma22Tray
+        shell: powershell
+        run: .\build_hot_attach_exe.ps1
+
+      - name: Create pre-release and upload EXE
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $sourceNotes = "release/RELEASE_NOTES_$tag.md"
+          if (-not (Test-Path -LiteralPath $sourceNotes)) {
+            throw "Release notes not found: $sourceNotes"
+          }
+          $hash = (Get-FileHash -LiteralPath "dist/Gamma22Tray.exe" -Algorithm SHA256).Hash
+          $notes = Join-Path $env:RUNNER_TEMP "release-notes.md"
+          Copy-Item -LiteralPath $sourceNotes -Destination $notes
+          Add-Content -LiteralPath $notes -Value @"
+
+          ### Release binary
+
+          SHA-256 (`Gamma22Tray.exe`):
+
+          ``$hash``
+
+          Built by GitHub Actions from source commit ``$env:GITHUB_SHA``.
+          "@
+          gh release create $tag "dist/Gamma22Tray.exe#Gamma22Tray.exe" `
+            --verify-tag `
+            --prerelease `
+            --title "Gamma22Tray $tag — runtime tray beta" `
+            --notes-file $notes

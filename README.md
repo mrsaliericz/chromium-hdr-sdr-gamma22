@@ -23,7 +23,7 @@ Google or Microsoft and patch only your own extracted/isolated copy.
 
 ## New: runtime tray beta
 
-[`Gamma22Tray.exe`](https://github.com/mrsaliericz/chromium-hdr-sdr-gamma22/releases/tag/v0.4.0-beta.1)
+[`Gamma22Tray.exe`](https://github.com/mrsaliericz/chromium-hdr-sdr-gamma22/releases/tag/v0.4.0-beta.2)
 is an experimental, non-destructive alternative for the normally installed
 64-bit Google Chrome and Microsoft Edge. It does **not** modify `chrome.dll` or
 `msedge.dll` on disk. Instead, it structurally verifies the installed browser
@@ -39,17 +39,28 @@ tray application can watch both Chrome and Edge simultaneously.
 4. Right-click the tray icon to disable or enable the fix. The icon is colored
    while enabled and gray while disabled. **Open diagnostic log** shows detailed
    detection and patch status.
+5. Optionally enable **Start with Windows** in the same menu. This creates only
+   the per-user `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` entry and
+   requires no administrator rights. **About Gamma22Tray** shows the installed
+   version, project information and author contact.
 
 Turning the fix off restores the upstream code and cached SDR color object in
 the running browser. Exiting the tray application does not undo memory already
 changed in an existing process; choose **Disable Gamma 2.2 fix** first, or close
 the browser. All in-memory changes disappear naturally when the browser exits.
 
-This beta was tested with Chrome `151.0.7922.138` and Edge `151.0.4129.86` on
-Windows 11 x64. Its detector is structural rather than tied to one file hash,
-so it may survive browser updates, but this is not guaranteed. An unfamiliar
-layout is rejected without writing anything. Native HDR video, PQ, HLG and
-Display-P3 remain on their original Chromium paths.
+This beta was tested with Chrome `151.0.7922.138` and Edge `151.0.4129.93` on
+Windows 11 x64. Every five seconds it checks which versioned browser DLL is
+current. When an update appears, it analyzes the new DLL and retains the old
+verified plan while old and new processes coexist. An unfamiliar layout is
+rejected without writing anything and retried later.
+
+The automatic update handoff is covered by simulated tests for a new version
+directory, an in-place DLL replacement and an unsupported update. It still
+needs confirmation during the next real Chrome/Edge update performed while the
+tray is already running. Structural compatibility with future versions is not
+guaranteed. Native HDR video, PQ, HLG and Display-P3 remain on their original
+Chromium paths.
 
 > **Security notice:** this unsigned experimental tool attaches as a debugger
 > and writes to Chrome/Edge process memory. Antivirus products may therefore
