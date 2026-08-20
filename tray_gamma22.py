@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import ctypes
 from ctypes import wintypes
+import os
 from pathlib import Path
+import subprocess
 import sys
 import threading
 import time
@@ -48,8 +50,12 @@ CMD_AUTOSTART = 104
 CMD_ABOUT = 105
 UPDATE_POLL_SECONDS = 5.0
 FAILED_GENERATION_RETRY_SECONDS = 30.0
+UPDATE_RESTART_SETTLE_SECONDS = 15.0
+RESTART_WAIT_ARGUMENT = "--gamma22-restart-after-pid"
+RESTART_PARENT_TIMEOUT_MS = 60_000
+MAX_ATTACH_ATTEMPTS = 3
 APP_NAME = "Gamma22Tray"
-APP_VERSION = "0.4.0-beta.2"
+APP_VERSION = "0.4.0-beta.3"
 APP_AUTHOR = "Jaroslav Safar"
 APP_EMAIL = "jaroslav.safar.91@gmail.com"
 APP_URL = "https://github.com/mrsaliericz/chromium-hdr-sdr-gamma22"
@@ -112,6 +118,10 @@ class NOTIFYICONDATAW(ctypes.Structure):
 
 kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
 kernel32.GetModuleHandleW.restype = wintypes.HMODULE
+kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+kernel32.OpenProcess.restype = wintypes.HANDLE
+kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+kernel32.WaitForSingleObject.restype = wintypes.DWORD
 user32.RegisterClassW.argtypes = [ctypes.POINTER(WNDCLASSW)]
 user32.RegisterClassW.restype = wintypes.ATOM
 user32.CreateWindowExW.argtypes = [
@@ -321,6 +331,85 @@ class BrowserGenerations:
     def register_observed(self, dll: Path):
         """Analyze a DLL observed in a live process during a mixed update."""
         return self.register(dll)
+
+
+class UpdateRestartCoordinator:
+    """Suspend runtime writes and restart after a browser update settles."""
+
+    def __init__(self, *, clock=None, settle_seconds=UPDATE_RESTART_SETTLE_SECONDS):
+        self._clock = clock or time.monotonic
+        self.settle_seconds = settle_seconds
+        self.deadline: float | None = None
+        self.details: list[str] = []
+
+    @property
+    def pending(self) -> bool:
+        return self.deadline is not None
+
+    def schedule(self, detail: str) -> None:
+        self.details.append(detail)
+        self.deadline = self._clock() + self.settle_seconds
+
+    def due(self) -> bool:
+        return self.deadline is not None and self._clock() >= self.deadline
+
+
+def restart_command(parent_pid: int) -> list[str]:
+    if getattr(sys, "frozen", False):
+        return [
+            str(Path(sys.executable).resolve()),
+            RESTART_WAIT_ARGUMENT,
+            str(parent_pid),
+        ]
+    return [
+        str(Path(sys.executable).resolve()),
+        str(Path(__file__).resolve()),
+        RESTART_WAIT_ARGUMENT,
+        str(parent_pid),
+    ]
+
+
+def wait_for_restart_parent(arguments: list[str]) -> bool:
+    """Wait for the old tray instance before acquiring the single-instance mutex."""
+    if RESTART_WAIT_ARGUMENT not in arguments:
+        return True
+    index = arguments.index(RESTART_WAIT_ARGUMENT)
+    try:
+        parent_pid = int(arguments[index + 1])
+    except (IndexError, ValueError):
+        return False
+    synchronize = 0x00100000
+    wait_object_0 = 0
+    process = kernel32.OpenProcess(synchronize, False, parent_pid)
+    if not process:
+        return True
+    try:
+        return (
+            kernel32.WaitForSingleObject(process, RESTART_PARENT_TIMEOUT_MS)
+            == wait_object_0
+        )
+    finally:
+        hot.close_handle(process)
+
+
+def request_process_restart() -> None:
+    command = restart_command(os.getpid())
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
+        subprocess, "DETACHED_PROCESS", 0
+    )
+    subprocess.Popen(
+        command,
+        close_fds=True,
+        creationflags=creationflags,
+        cwd=str(Path(sys.executable).resolve().parent),
+    )
+    stop_event.set()
+    if window_handle:
+        user32.PostMessageW(window_handle, WM_CLOSE, 0, 0)
+
+
+def attach_attempt_is_final(attempts: int, *, unsupported_observed: bool) -> bool:
+    return unsupported_observed or attempts >= MAX_ATTACH_ATTEMPTS
 
 
 def set_status(value: str) -> None:
@@ -588,6 +677,7 @@ def worker() -> None:
     )
     targets = []
     states = {}
+    update_restart = UpdateRestartCoordinator()
 
     def publish_status() -> None:
         if not states:
@@ -662,6 +752,12 @@ def worker() -> None:
                     if update_kind == "updated":
                         target["last_update_error"] = None
                         print(f"{name}: browser update detected: {update_detail}")
+                        update_restart.schedule(f"{name}: {update_detail}")
+                        print(
+                            f"{name}: suspending new runtime writes for "
+                            f"{UPDATE_RESTART_SETTLE_SECONDS:.0f} seconds before "
+                            "restarting Gamma22Tray"
+                        )
                     elif update_detail != target["last_update_error"]:
                         target["last_update_error"] = update_detail
                         print(
@@ -670,6 +766,10 @@ def worker() -> None:
                         )
                 current = set(hot.running_processes_for_executable(browser))
                 target["completed"].intersection_update(current)
+                if update_restart.pending:
+                    states[name] = "update settling/restart pending"
+                    publish_status()
+                    continue
                 if generations.active_error is not None:
                     states[name] = "unsupported update"
                 else:
@@ -708,6 +808,7 @@ def worker() -> None:
                         print(f"{name}: new {role} PID {pid}: {detail}")
                         hot.refresh_display_state(current)
                     else:
+                        unsupported_observed = False
                         if observed_dll is not None:
                             try:
                                 observed_plan, added = generations.register_observed(
@@ -722,12 +823,21 @@ def worker() -> None:
                                     )
                                     continue
                             except Exception as error:
+                                unsupported_observed = True
                                 detail = (
                                     f"unsupported observed DLL {observed_dll}: {error}"
                                 )
                         attempts = target["failures"].get(pid, 0) + 1
                         target["failures"][pid] = attempts
-                        if attempts == 1 or attempts % 10 == 0:
+                        if attach_attempt_is_final(
+                            attempts, unsupported_observed=unsupported_observed
+                        ):
+                            target["completed"].add(pid)
+                            print(
+                                f"{name}: PID {pid} skipped after {attempts} attach "
+                                f"attempt(s) ({detail})"
+                            )
+                        else:
                             print(
                                 f"{name}: PID {pid} attach attempt {attempts} "
                                 f"deferred ({detail})"
@@ -736,6 +846,18 @@ def worker() -> None:
                 states[name] = "error"
                 print(f"{name} watcher ERROR: {error}")
             publish_status()
+        if update_restart.due():
+            print(
+                "Browser update settling period complete; restarting Gamma22Tray "
+                "before attaching to the current browser generation"
+            )
+            set_status("Browser updated — restarting safely…")
+            try:
+                request_process_restart()
+            except Exception as error:
+                print(f"Automatic Gamma22Tray restart failed: {error}")
+                set_status("Browser updated — manual restart required")
+            return
         if mode_changed:
             last_enabled = enabled
             finish_fix_toggle()
@@ -745,6 +867,8 @@ def worker() -> None:
 
 def main() -> int:
     global active_icon, inactive_icon, log_path, notify_data, owned_icons, window_handle
+    if not wait_for_restart_parent(sys.argv[1:]):
+        return 1
     log_path = hot.configure_background_process()
     if getattr(hot.sys, "frozen", False) and hot._instance_mutex is None:
         return 0

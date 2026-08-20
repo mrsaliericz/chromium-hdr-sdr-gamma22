@@ -123,7 +123,7 @@ class RuntimeUpdateTests(unittest.TestCase):
 class TrayInterfaceTests(unittest.TestCase):
     def test_about_metadata_is_present(self):
         self.assertEqual(tray.APP_NAME, "Gamma22Tray")
-        self.assertEqual(tray.APP_VERSION, "0.4.0-beta.2")
+        self.assertEqual(tray.APP_VERSION, "0.4.0-beta.3")
         self.assertEqual(tray.APP_AUTHOR, "Jaroslav Safar")
         self.assertEqual(tray.APP_EMAIL, "jaroslav.safar.91@gmail.com")
 
@@ -164,6 +164,63 @@ class TrayInterfaceTests(unittest.TestCase):
             tray.set_autostart(False)
 
         delete_value.assert_called_once_with(key, tray.RUN_VALUE_NAME)
+
+    def test_update_restart_waits_for_settling_period(self):
+        now = [100.0]
+        coordinator = tray.UpdateRestartCoordinator(
+            clock=lambda: now[0], settle_seconds=15.0
+        )
+
+        coordinator.schedule("Chrome: old -> new")
+        self.assertTrue(coordinator.pending)
+        self.assertFalse(coordinator.due())
+        now[0] = 114.9
+        self.assertFalse(coordinator.due())
+        now[0] = 115.0
+        self.assertTrue(coordinator.due())
+
+    def test_second_update_resets_settling_deadline(self):
+        now = [100.0]
+        coordinator = tray.UpdateRestartCoordinator(
+            clock=lambda: now[0], settle_seconds=15.0
+        )
+
+        coordinator.schedule("Chrome: old -> intermediate")
+        now[0] = 110.0
+        coordinator.schedule("Chrome: intermediate -> current")
+        now[0] = 115.0
+        self.assertFalse(coordinator.due())
+        now[0] = 125.0
+        self.assertTrue(coordinator.due())
+
+    def test_frozen_restart_command_waits_for_current_pid(self):
+        with mock.patch.object(tray.sys, "frozen", True, create=True), mock.patch.object(
+            tray.sys, "executable", r"C:\Tools\Gamma22Tray.exe"
+        ):
+            command = tray.restart_command(1234)
+
+        self.assertEqual(
+            command,
+            [
+                str(Path(r"C:\Tools\Gamma22Tray.exe").resolve()),
+                tray.RESTART_WAIT_ARGUMENT,
+                "1234",
+            ],
+        )
+
+    def test_attach_retry_limit_prevents_debugger_attach_storm(self):
+        self.assertFalse(
+            tray.attach_attempt_is_final(1, unsupported_observed=False)
+        )
+        self.assertFalse(
+            tray.attach_attempt_is_final(2, unsupported_observed=False)
+        )
+        self.assertTrue(
+            tray.attach_attempt_is_final(3, unsupported_observed=False)
+        )
+        self.assertTrue(
+            tray.attach_attempt_is_final(1, unsupported_observed=True)
+        )
 
 
 if __name__ == "__main__":
