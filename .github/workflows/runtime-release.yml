@@ -1,9 +1,9 @@
-name: Build runtime tray beta release
+name: Build Gamma22Tray release
 
 on:
   push:
     tags:
-      - "v*-beta.*"
+      - "v*"
 
 permissions:
   contents: write
@@ -26,11 +26,11 @@ jobs:
       - name: Run tests
         run: python -m unittest discover -s tests -v
 
-      - name: Build Gamma22Tray
+      - name: Build Gamma22Tray onedir package
         shell: powershell
         run: .\build_hot_attach_exe.ps1
 
-      - name: Create pre-release and upload EXE
+      - name: Create release and upload ZIP
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
@@ -40,22 +40,29 @@ jobs:
           if (-not (Test-Path -LiteralPath $sourceNotes)) {
             throw "Release notes not found: $sourceNotes"
           }
-          $hash = (Get-FileHash -LiteralPath "dist/Gamma22Tray.exe" -Algorithm SHA256).Hash
+          $asset = "dist/Gamma22Tray-win64.zip"
+          $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash
           $notes = Join-Path $env:RUNNER_TEMP "release-notes.md"
           Copy-Item -LiteralPath $sourceNotes -Destination $notes
           $releaseDetails = @(
             "",
-            "### Release binary",
+            "### Release package",
             "",
-            "SHA-256 (Gamma22Tray.exe):",
+            "SHA-256 (Gamma22Tray-win64.zip):",
             "",
             $hash,
             "",
             "Built by GitHub Actions from source commit $env:GITHUB_SHA."
           )
           Add-Content -LiteralPath $notes -Value $releaseDetails
-          gh release create $tag "dist/Gamma22Tray.exe#Gamma22Tray.exe" `
-            --verify-tag `
-            --prerelease `
-            --title "Gamma22Tray $tag - runtime tray beta" `
-            --notes-file $notes
+          $arguments = @(
+            "release", "create", $tag,
+            "$asset#Gamma22Tray-win64.zip",
+            "--verify-tag",
+            "--title", "Gamma22Tray $tag - Chrome and Edge runtime release",
+            "--notes-file", $notes
+          )
+          if ($tag -match "-") {
+            $arguments += "--prerelease"
+          }
+          gh @arguments
