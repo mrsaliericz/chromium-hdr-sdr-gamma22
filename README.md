@@ -1,514 +1,180 @@
-# Chromium HDR SDR Gamma 2.2 patcher
+# Gamma22Tray — Chromium HDR SDR Gamma 2.2
+
+Gamma22Tray corrects ordinary SDR rendering in **normally installed 64-bit
+Google Chrome and Microsoft Edge** while Windows HDR is enabled. It keeps the
+browsers on their native HDR/scRGB presentation path but interprets ordinary
+BT.709/sRGB SDR content using pure gamma 2.2.
+
+> **[Download Gamma22Tray v0.4.0](https://github.com/mrsaliericz/chromium-hdr-sdr-gamma22/releases/latest)**
+
+Portable or isolated browser copies are not required. Gamma22Tray runs in the
+Windows notification area and applies the correction only in process memory;
+it does not modify Chrome or Edge files on disk.
 
 > **Free and open source, forever.** You may use, share, modify and redistribute
-> this MIT-licensed solution at no cost. If it improves your Windows HDR setup
-> and you would like to support the work, I will be very happy if you
-> [buy me a coffee ☕](https://buymeacoffee.com/mrsaliericze) — but donating is
-> entirely optional and the patcher is and always will be free.
+> this MIT-licensed project at no cost. If it improves your Windows HDR setup,
+> you can optionally [buy me a coffee ☕](https://buymeacoffee.com/mrsaliericze).
 
-> **Recommended release:** [`Gamma22Tray v0.4.0`](https://github.com/mrsaliericz/chromium-hdr-sdr-gamma22/releases/tag/v0.4.0)
-> works with standard installed versions of both **Google Chrome** and
-> **Microsoft Edge**. A portable browser copy is no longer required. It applies
-> the fix to supported running browser processes without modifying their files
-> on disk.
+## What it preserves
 
-Fail-closed patcher for supported **64-bit Google Chrome and Microsoft Edge
-builds on Windows**, including their normal installed versions.
-It keeps Chromium's native HDR / wide-gamut pipeline, but changes ordinary
-BT.709+sRGB SDR content to a pure gamma 2.2 interpretation while Windows HDR
-is enabled.
+The correction is deliberately limited to ordinary SDR BT.709/sRGB content:
 
-> **HDR content is displayed correctly and without any modification.** The
-> patch changes only ordinary SDR BT.709/sRGB interpretation. Native HDR video,
-> PQ, HLG, HDR black levels and highlights remain on Chromium's original HDR
-> path and visually match the unpatched browser.
+- Display-P3 and other wide-gamut content remains wide gamut.
+- Native HDR video remains on Chromium's original HDR path.
+- PQ, HLG, HDR black levels and highlights are not changed.
+- SDR appearance remains stable when HDR or P3 content appears or disappears.
+- Chrome and Edge browser files remain untouched on disk.
 
-The repository contains **no Chrome or Edge binaries**.
+## Requirements
 
-## Gamma22Tray runtime patcher (recommended)
+- Windows 11 x64 with Windows HDR enabled.
+- Normally installed 64-bit Google Chrome and/or Microsoft Edge.
+- A structurally compatible Chromium build. Unknown layouts are rejected
+  before Gamma22Tray writes anything to process memory.
 
-[`Gamma22Tray v0.4.0`](https://github.com/mrsaliericz/chromium-hdr-sdr-gamma22/releases/tag/v0.4.0)
-is a non-destructive runtime patcher for normally installed 64-bit Google
-Chrome and Microsoft Edge. It does **not** modify `chrome.dll` or `msedge.dll`
-on disk. Instead, it structurally verifies the installed browser and applies
-the SDR gamma/scRGB changes only to its running processes.
+## Install and run
 
-Gamma22Tray can attach to browsers that are already open and continues watching
-new browser and GPU processes, so new windows and tabs remain corrected. One
-tray application can watch both Chrome and Edge simultaneously.
+1. Download `Gamma22Tray-win64.zip` from the
+   [latest release](https://github.com/mrsaliericz/chromium-hdr-sdr-gamma22/releases/latest).
+2. Extract the **complete `Gamma22Tray` folder** to a permanent location.
+3. Keep `Gamma22Tray.exe` beside its `_internal` folder. Copying the EXE alone
+   will cause a missing Python DLL error.
+4. Run `Gamma22Tray.exe` normally. Do not use **Run as administrator**.
+5. Start or continue using the normally installed Chrome or Edge.
 
-1. Download `Gamma22Tray-win64.zip` from the release.
-2. Extract the **entire `Gamma22Tray` folder** to a permanent location. The EXE
-   must remain beside its `_internal` folder; do not copy the EXE by itself.
-3. Run `Gamma22Tray.exe` normally — do not use **Run as administrator**.
-4. Start or continue using the normally installed Chrome or Edge.
-5. Right-click the tray icon to disable or enable the fix. The icon is colored
-   while enabled and gray while disabled. **Open diagnostic log** shows detailed
-   detection and patch status.
-6. Optionally enable **Start with Windows** in the same menu. This creates only
-   the per-user `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` entry and
-   requires no administrator rights. **About Gamma22Tray** shows the installed
-   version, project information and author contact.
+The tray icon is colored while the correction is enabled and gray while it is
+disabled. Right-click it to access:
 
-Turning the fix off restores the upstream code and cached SDR color object in
-the running browser. Exiting the tray application does not undo memory already
-changed in an existing process; choose **Disable Gamma 2.2 fix** first, or close
-the browser. All in-memory changes disappear naturally when the browser exits.
+- **Disable/Enable Gamma 2.2 fix**
+- **Start with Windows**
+- **About Gamma22Tray**
+- **Open diagnostic log**
+- **Exit**
 
-The release was tested on Windows 11 x64 through real installed Chrome and Edge
-updates. Every five seconds it checks which versioned browser DLL is current.
-When a compatible update appears, it suspends new writes for 15 seconds and
-restarts itself before attaching to the current browser generation. Unknown
-layouts are rejected without writing anything. Structural compatibility with
-every future Chromium version cannot be guaranteed. Native HDR video, PQ, HLG
-and Display-P3 remain on their original Chromium paths.
+Turning the fix off restores upstream code and cached SDR color objects in
+running browser processes. Exiting Gamma22Tray does not undo changes already
+made in an existing process; disable the fix first or close the browser. All
+in-memory changes disappear naturally when the browser exits.
 
-> **Security notice:** this unsigned tool attaches as a debugger
-> and writes to Chrome/Edge process memory. Antivirus products may therefore
-> report a heuristic false positive. Download it only from this repository,
-> verify the published SHA-256, inspect the source and build it yourself if in
-> doubt. The release intentionally uses an unpacked PyInstaller onedir layout
-> because the earlier single-file beta triggered Windows Defender heuristics.
-> Never disable Windows security merely to run it.
+## Browser updates
 
-To build from source with Python 3.9 or newer:
+Gamma22Tray checks the installed Chrome and Edge DLL generations every five
+seconds. When it recognizes a compatible update, it:
+
+1. suspends new process-memory writes,
+2. waits 15 seconds for the browser update to settle,
+3. safely restarts itself,
+4. attaches to the current browser generation.
+
+The mechanism has been verified during real Chrome and Edge updates: the fix
+resumed after several seconds without manual intervention. Compatibility with
+every future Chromium layout cannot be guaranteed; unfamiliar layouts fail
+closed and are reported in the diagnostic log.
+
+## Start with Windows
+
+Use **Start with Windows** in the tray menu after placing the extracted folder
+in its permanent location. Gamma22Tray creates only this per-user registry
+value and does not require administrator rights:
+
+```text
+HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Gamma22Tray
+```
+
+Do not move or rename the extracted folder afterward. To change its location,
+disable Start with Windows, move the complete folder, run the EXE from the new
+location and enable the option again.
+
+## Using it with dwm_eotf_rs
+
+Gamma22Tray works well alongside
+[`dwm_eotf_rs`](https://github.com/SERGEYDJUM/dwm_eotf_rs), and using both is
+recommended when you want gamma correction in other Windows applications too.
+
+Chromium remains on its HDR/scRGB presentation path, so `dwm_eotf_rs` does not
+apply a second correction to the browser. Gamma22Tray handles Chromium's
+internal SDR-to-scRGB conversion while `dwm_eotf_rs` continues handling other
+SDR applications that pass through the Windows DWM path.
+
+Gamma22Tray targets gamma **2.2**, not 2.4. There is currently no 2.4 mode.
+
+## Browser video
+
+- Native HDR video is not modified.
+- Ordinary SDR video follows Chromium's active video/compositor path and may
+  briefly change appearance when player UI or overlays appear.
+- NVIDIA RTX Video HDR can convert supported SDR video to HDR before the final
+  presentation path. When it is active, Gamma22Tray intentionally leaves that
+  HDR result unchanged.
+
+## HDR photos and Google Photos
+
+Gamma22Tray intentionally does not modify HDR gain-map reconstruction or
+Display-P3 images. Services can supply an iPhone photo as an Ultra HDR JPEG
+with a P3 or sRGB SDR base plus a separate gain map. Its shadows and midtones
+may therefore differ from Apple Photos or iCloud even while HDR highlights and
+wide gamut remain active. This is outside the ordinary BT.709/sRGB path changed
+by Gamma22Tray.
+
+## Antivirus notice
+
+Gamma22Tray is unsigned and necessarily uses Windows debugger attachment and
+process-memory writes. Antivirus products can classify those behaviors as
+suspicious even when the program was built from this published source.
+
+The v0.4.0 release uses an unpacked **onedir** package because the earlier
+self-extracting one-file beta triggered Windows Defender heuristics. It also
+limits failed debugger attachments and skips incompatible WebView processes to
+avoid retry storms.
+
+Do not disable Windows security. Download only from this repository, verify the
+published SHA-256, inspect the source, and build it yourself if in doubt.
+
+## Diagnostics
+
+Use **Open diagnostic log** in the tray menu. The log is stored at:
+
+```text
+%LOCALAPPDATA%\ChromiumGamma22\Gamma22HotAttach.log
+```
+
+Useful messages include the detected browser version and DLL hash, successful
+browser/GPU process attachment, an update-triggered restart, or a safely
+rejected unsupported layout.
+
+## Build from source
+
+Install Python 3.9 or newer and PyInstaller, then run:
 
 ```powershell
 python -m pip install pyinstaller
 .\build_hot_attach_exe.ps1
 ```
 
-The resulting package is `dist\Gamma22Tray-win64.zip`. Extract it before use;
-the packaged EXE depends on the adjacent `_internal` directory. The build script
-also regenerates the colored and disabled tray icon variants.
-
-The original hash-locked portable patcher remains available as a legacy option
-and is documented below.
-
-## Supported build
-
-- Google Chrome Portable by PortableApps.com `150.0.7871.187`, win64
-  - Normal Google Chrome name and icon; no "Chrome for Testing" branding.
-  - Original `chrome.dll` SHA-256:
-    `577D16A963D3283960140C23521F5AEB5459D3127267D8076E71E1CF94403A79`
-- Google Chrome for Testing `151.0.7922.138`, win64
-  - Exact official archive: [chrome-win64.zip](https://storage.googleapis.com/chrome-for-testing-public/151.0.7922.138/win64/chrome-win64.zip)
-  - Archive SHA-256:
-    `864A03252382FCFAF0475A1D7CAD30B99CB54883060DCB5526249F4CA08AA03A`
-  - Original `chrome.dll` SHA-256:
-    `660E66FFC2F622E57506E373DBB33F7CDA4005D38D4CDAB2BFEB3F9A274FDAFC`
-- Microsoft Edge isolated portable copy `151.0.4129.78`, win64
-  - Built by copying your own Microsoft-signed Edge `Application` directory
-    outside `Program Files`; this is not an official Microsoft portable edition.
-  - Original Microsoft-signed `msedge.dll` SHA-256:
-    `29B191751916DBFE5ED4206022A0D7AB45BD79966D9074ED872112D1865DCEC6`
-
-Every recipe is tied to an exact original hash. Unknown or updated builds are
-rejected before any write.
-
-## What the patch changes
-
-1. Adds ordinary SDR (`ContentColorUsage::kSRGB`) to Chromium's existing
-   scRGB/F16 HDR output setup, alongside WCG and HDR. Chrome recipes use an
-   audited output trampoline; the Edge recipe extends its audited SDR/WCG/HDR
-   usage table.
-2. Redirects only the version-specific, structurally verified constructions
-   combining the canonical sRGB transfer function with the BT.709/sRGB gamut
-   to Skia's adjacent pure gamma 2.2 transfer function. Depending on the build,
-   the recipe verifies 47, 49 or 98 exact initializer sites.
-
-The shared sRGB transfer constant is **not** overwritten. That distinction is
-important because Display-P3 commonly uses the sRGB transfer curve with P3
-primaries. PQ, HLG, P3 primaries and HDR video paths are not selected by the
-patched BT.709+sRGB construction pattern. **HDR rendering is therefore neither
-tone-mapped nor gamma-adjusted by this patch; it remains unchanged.**
-
-### HDR photos, iPhone and Google Photos
-
-The patch intentionally does not modify Display-P3 images or HDR gain-map
-photos. An HDR photo can use a Display-P3 or sRGB SDR base plus a gain map;
-Chromium reconstructs its HDR rendition separately from the ordinary
-BT.709+sRGB SDR path corrected by this patch.
-
-Google Photos may serve or export an iPhone photo as a converted Adobe Ultra
-HDR JPEG. Such a rendition can contain a Display-P3 SDR base with the
-piecewise-sRGB transfer curve and a separate HDR gain map. Its shadows and
-midtones may consequently look lighter than the same photo in Apple Photos or
-iCloud even while its HDR highlights and wide gamut remain active. This is a
-difference in the supplied image rendition and gain-map tone mapping, not a
-failure of the SDR gamma patch. Google documents its
-[Ultra HDR support](https://support.google.com/photos/answer/14159275) but does
-not promise pixel-identical tone mapping across the Apple and Google display
-pipelines.
-
-For the most faithful rendering of iPhone HDR photos, prefer iCloud or the
-original Apple media. If Google Photos is used for backup, select
-[Original quality](https://support.google.com/photos/answer/6220791), avoid
-unnecessary web edits and retain the original HEIC/JPEG files separately; a
-Google Photos web preview can still be a transformed rendition. Applying gamma
-2.2 globally to Display-P3 or gain-map paths is not recommended, because that
-would alter legitimate wide-gamut/HDR content and its creator-authored HDR
-appearance.
-
-## Usage
-
-Requirements: Windows 11 x64 and Windows HDR enabled.
-
-### Easy EXE method
-
-1. Download and install
-   [Google Chrome Portable 64-bit from PortableApps.com](https://portableapps.com/apps/internet/google-chrome-portable-64)
-   into a new folder. Version `150.0.7871.187` is supported.
-2. Download `Gamma22Patcher.exe` from the
-   [latest GitHub Release](https://github.com/mrsaliericz/chromium-hdr-sdr-gamma22/releases/latest).
-3. Put `Gamma22Patcher.exe` beside `GoogleChromePortable.exe` and double-click it.
-4. Choose `A`, then type `APPLY` when asked.
-5. Start the browser normally using `GoogleChromePortable.exe`.
-
-This is the recommended beginner-friendly option: it has the normal Google
-Chrome icon and name, keeps its profile inside the portable folder, and does
-not display the "Chrome for Testing" label.
-
-Alternatively, the exact official Chrome for Testing `151.0.7922.138` win64
-ZIP remains supported. For that build, put the patcher beside `chrome.exe`; it
-will create `Start Chrome Gamma22.cmd` after applying the patch.
-
-### Microsoft Edge isolated-copy method
-
-Microsoft currently distributes Edge as an installer/offline enterprise
-package, not as an official portable browser. The patcher therefore supports a
-user-created isolated copy of the exact Edge `151.0.4129.78` build:
-
-1. Close every Microsoft Edge window and process.
-2. Locate the installed version directory, normally under
-   `C:\Program Files (x86)\Microsoft\Edge\Application\151.0.4129.78`.
-3. Copy the **entire `Application` directory** to a new writable folder, for
-   example `C:\Users\Public\EdgeGamma22Portable\Application`. Never patch the
-   original directory under `Program Files`.
-4. Put `Gamma22Patcher.exe` in `C:\Users\Public\EdgeGamma22Portable` and
-   double-click it. Choose `A`, then type `APPLY`.
-5. Start Edge only through the generated `Start Edge Gamma22.cmd`. It uses an
-   isolated `EdgeGamma22Profile` inside the copied folder.
-
-#### Desktop shortcut and taskbar pin
-
-Windows does not reliably pin the generated `.cmd` launcher. You can instead
-create a normal desktop shortcut that launches the copied `msedge.exe` with
-the same isolated profile. This procedure has been verified to keep the
-running portable window grouped under its pinned taskbar icon.
-
-> **Create a completely new shortcut.** Do not copy or edit the shortcut from
-> the normally installed Microsoft Edge. Existing Edge shortcuts can retain a
-> hidden Windows `AppUserModelID` even after their visible target and arguments
-> are changed. That stale identity can make the portable window open under a
-> second taskbar icon.
-
-1. Right-click the desktop and select **New → Shortcut**.
-2. For a copy stored in `C:\Users\Public\EdgeGamma22Portable`, enter:
-
-   ```text
-   "C:\Users\Public\EdgeGamma22Portable\Application\msedge.exe" --user-data-dir="C:\Users\Public\EdgeGamma22Portable\EdgeGamma22Profile" --no-first-run --no-default-browser-check
-   ```
-
-   Replace both root paths if you placed the portable copy elsewhere.
-3. Name the shortcut `Edge Gamma 2.2`.
-4. In its **Properties**, set **Start in** to:
-
-   ```text
-   C:\Users\Public\EdgeGamma22Portable\Application
-   ```
-
-5. Right-click the finished shortcut (use **Show more options** on Windows 11)
-   and select **Pin to taskbar**. If that option is unavailable, press
-   `Win+R`, open `shell:programs`, copy the shortcut there, then find
-   `Edge Gamma 2.2` in Start and pin it from the search result.
-
-Alternatively, this PowerShell snippet creates a fresh shortcut without
-inheriting metadata from an installed Edge shortcut. Change only
-`$edgeGammaRoot` if your portable folder is elsewhere:
-
-```powershell
-$edgeGammaRoot = 'C:\Users\Public\EdgeGamma22Portable'
-$shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Edge Gamma 2.2.lnk'
-$edgeExe = Join-Path $edgeGammaRoot 'Application\msedge.exe'
-$edgeProfile = Join-Path $edgeGammaRoot 'EdgeGamma22Profile'
-
-$shell = New-Object -ComObject WScript.Shell
-$shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $edgeExe
-$shortcut.Arguments = "--user-data-dir=`"$edgeProfile`" --no-first-run --no-default-browser-check"
-$shortcut.WorkingDirectory = Join-Path $edgeGammaRoot 'Application'
-$shortcut.IconLocation = "$edgeExe,0"
-$shortcut.Description = 'Microsoft Edge Gamma 2.2'
-$shortcut.Save()
-```
-
-Do not pin an already-running Edge window: Windows may create a new shortcut
-without `--user-data-dir`, allowing the installed Edge session to capture the
-launch. After starting the pinned shortcut, open `edge://version` and verify
-both values:
+The build produces:
 
 ```text
-Executable Path: C:\Users\Public\EdgeGamma22Portable\Application\msedge.exe
-Profile Path:    C:\Users\Public\EdgeGamma22Portable\EdgeGamma22Profile\Default
+dist\Gamma22Tray-win64.zip
 ```
 
-Both paths matter. The executable must come from the patched copy and the
-profile must remain inside its isolated portable folder.
-
-If the window still appears under a second icon, unpin the old custom icon,
-close the isolated Edge copy, delete only the custom shortcut that was copied
-or edited from normal Edge, and create a fresh shortcut using the steps or
-PowerShell snippet above. Do not change or remove the normal installed Edge
-shortcut. Windows may need a restart of Explorer or a sign-out/sign-in to
-discard an already cached taskbar identity.
-
-If your installed Edge has already updated to a different version, the patcher
-will safely refuse it. Do not download an old `msedge.dll` from third-party DLL
-sites. Microsoft publishes official installers on the
-[Edge for Business download page](https://www.microsoft.com/en-us/edge/business/download),
-but every new Edge build still requires a separately audited recipe.
-
-The EXE refuses unknown browser versions and installed browsers. It creates a
-verified original-DLL backup before changing anything. Windows may show a
-SmartScreen warning because this community-built EXE is not code-signed; do
-not disable Windows security, and compare the release SHA-256 if in doubt.
-
-### Make the patched Chrome or Edge your default browser
-
-Windows 11 will not offer an arbitrary portable EXE as a default browser until
-it has been registered. The included
-[`tools/register_default_browser.ps1`](tools/register_default_browser.ps1)
-creates a separate, per-user registration named **Chrome Gamma 2.2** or
-**Edge Gamma 2.2**. It does not modify Chrome's `ChromeHTML`, Edge's
-`MSEdgeHTM`, the installed browser, or machine-wide registry keys. Administrator
-rights are not required. It follows Microsoft's documented
-[Default Programs registration](https://learn.microsoft.com/en-us/windows/win32/shell/default-programs)
-and [per-user Default Apps deep link](https://learn.microsoft.com/en-us/windows/apps/develop/launch/launch-default-apps-settings).
-
-Download the script (or run it from a cloned repository), then use the example
-that matches your browser. Change the paths to your actual portable folder.
-
-For an isolated Edge copy:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\register_default_browser.ps1 `
-  -Browser Edge `
-  -ExecutablePath 'C:\Users\Public\EdgeGamma22Portable\Application\msedge.exe' `
-  -ProfileDirectory 'C:\Users\Public\EdgeGamma22Portable\EdgeGamma22Profile'
-```
-
-For Google Chrome Portable by PortableApps.com, register its launcher. Do not
-add `-ProfileDirectory`; the PortableApps launcher already selects its portable
-profile:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\register_default_browser.ps1 `
-  -Browser Chrome `
-  -ExecutablePath 'C:\PortableApps\GoogleChromePortable\GoogleChromePortable.exe'
-```
-
-For a raw extracted Chrome or Chrome for Testing copy, register `chrome.exe`
-and provide its isolated profile explicitly:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\register_default_browser.ps1 `
-  -Browser Chrome `
-  -ExecutablePath 'C:\Browsers\chrome-win64\chrome.exe' `
-  -ProfileDirectory 'C:\Browsers\ChromeGamma22Profile'
-```
-
-The script opens **Settings → Apps → Default apps** on the new browser's page.
-Clear the optional **Pin to Start** and **Pin to taskbar** checkboxes if you
-already have a working portable shortcut, then click **Set default**. Windows
-protects the final user choice, so the script deliberately does not try to
-write or bypass the protected `UserChoice` hash.
-
-This sets `HTTP`, `HTTPS`, `.htm`, `.html` and `.shtml`. PDF is intentionally
-left unchanged. Verify `edge://version` or `chrome://version` after opening an
-external link: both **Executable Path** and **Profile Path** must point to the
-patched portable copy. Links using the Windows-specific `microsoft-edge:`
-protocol may still open the normally installed Edge; ordinary web links use
-the selected default browser.
-
-The registration keeps working while the executable and profile stay at the
-same paths. Keep the portable browser patched to a currently supported,
-security-updated build before using it for all external links.
-
-To undo the change, first select another default browser in Windows Settings.
-Then remove only the custom per-user registration:
-
-```powershell
-# Choose Chrome here if that is the copy you registered.
-powershell -ExecutionPolicy Bypass -File .\tools\register_default_browser.ps1 `
-  -Browser Edge -Unregister
-```
-
-The script refuses to unregister while its custom ProgID is still selected,
-preventing a broken default association.
-
-### Python / command-line method
-
-Python 3.9 or newer is required for this method. The prebuilt release can use
-`Gamma22Patcher.exe` in place of `python .\gamma22_patcher.py`.
-
-1. Download and extract the official
-   [Chrome for Testing win64 ZIP](https://googlechromelabs.github.io/chrome-for-testing/).
-2. Close every process belonging to that extracted Chrome copy.
-3. Verify and apply:
-
-```powershell
-python .\gamma22_patcher.py verify C:\path\to\chrome-win64\chrome.dll
-python .\gamma22_patcher.py apply  C:\path\to\chrome-win64\chrome.dll
-```
-
-4. Launch with a separate test profile:
-
-```powershell
-C:\path\to\chrome-win64\chrome.exe `
-  --user-data-dir=C:\Users\Public\ChromeGamma22Profile
-```
-
-The separate profile is mandatory when regular Chrome is already running.
-Without it, Chrome's process singleton can forward the launch to the installed,
-unpatched browser even though a different `chrome.exe` path was requested.
-For convenience, copy
-[`launcher/Start Chrome Gamma22.cmd`](launcher/Start%20Chrome%20Gamma22.cmd)
-beside the extracted `chrome.exe` and run that launcher.
-
-### Using it with dwm_eotf
-
-This patch works well alongside
-[`dwm_eotf`](https://github.com/ledoge/dwm_eotf), and running both at the same
-time is recommended when `dwm_eotf` is needed to correct SDR output from other
-Windows applications. The patched browser deliberately stays on Chromium's
-scRGB/F16 HDR presentation path, so its presented output is always HDR/scRGB.
-Its SDR content therefore remains gamma 2.2 and is not altered by `dwm_eotf`'s
-SDR-through-DWM correction.
-
-In short: leave `dwm_eotf` enabled for other applications; it can coexist with
-this browser patch without double-correcting the browser image.
-
-### SDR browser video and NVIDIA RTX Video HDR
-
-Ordinary web-page SDR and SDR video are not always rendered through exactly
-the same Chromium path. SDR video is commonly decoded as limited-range YUV
-with BT.709 primaries, transfer and matrix, and it may use a dedicated hardware
-video surface. The patch guarantees its audited ordinary BT.709+sRGB RGB path;
-it should not be described as a universal gamma override for every SDR video
-decoder, codec or presentation path.
-
-If **NVIDIA RTX Video HDR** is enabled, the distinction is especially
-important. NVIDIA documents that RTX Video HDR converts supported SDR browser
-video into HDR10 in real time in current Chrome and Edge. In that configuration:
-
-- this patch keeps the surrounding SDR web page at gamma 2.2;
-- RTX Video HDR handles the SDR video's separate SDR-to-HDR tone mapping;
-- native HDR video is not processed by RTX Video HDR and remains on Chromium's
-  unchanged native HDR path.
-
-This combination has been visually verified with SDR and native-HDR YouTube
-playback. It is a useful optional setup, but RTX-processed SDR video is
-**synthetic HDR**, not creator-authored native HDR and not a pure gamma 2.2 SDR
-reference.
-
-When showing or hiding player controls, a brief gamma/brightness transition of
-only a few frames may occasionally be visible. Testing showed this transition
-only with RTX Video HDR active, consistent with a short video-surface or filter
-reconfiguration; it is not a persistent page-gamma switch. NVIDIA also states
-that enabling RTX Video automatically disables Multiplane Overlay (MPO), so the
-exact internal transition should not be assumed to be a normal MPO promotion.
-
-To determine whether the browser patch itself affects a particular SDR video
-path, disable **RTX Video HDR**, restart the browser, confirm `Color: bt709` in
-YouTube's **Stats for nerds**, and compare again. NVIDIA App can display a
-real-time RTX Video status indicator. On Edge, NVIDIA recommends disabling
-Edge's own **Enhance videos** option when using NVIDIA RTX Video.
-
-See NVIDIA's official
-[RTX Video FAQ](https://nvidia.custhelp.com/app/answers/detail/a_id/5448/~/rtx-video-faq)
-for current compatibility, exclusions and status-indicator instructions.
-
-The patcher creates `chrome.dll.gamma22-original` or
-`msedge.dll.gamma22-original` beside the DLL before the first write. Restore it
-with:
-
-```powershell
-python .\gamma22_patcher.py restore C:\path\to\chrome-win64\chrome.dll
-# Edge: python .\gamma22_patcher.py restore C:\path\to\msedge.dll
-```
+The GitHub release workflow runs the automated tests, builds the onedir ZIP and
+publishes its SHA-256 together with the exact source commit.
 
 ## Safety model
 
-- Refuses Chrome/Edge DLLs under `Program Files`.
-- Requires an exact original SHA-256 for `apply`.
-- Verifies PE architecture, Skia constants, initializer count, hook bytes,
-  trampoline padding, and the complete target helper body.
-- Writes a recovery copy and performs structural post-write verification.
-- Refuses mixed, ambiguous, already-modified, and unknown versions.
+- Browser binaries are never modified on disk.
+- Candidate DLL layouts are structurally verified before runtime writes.
+- Unknown or incompatible layouts fail closed.
+- Attach retries are bounded to avoid repeated debugger activity.
+- Only browser and GPU roles receive their corresponding changes; renderer and
+  utility processes retain upstream behavior.
 
-Modifying `chrome.dll` or `msedge.dll` invalidates that DLL's Authenticode
-signature. Browser updates replace the DLL and require a new audited recipe.
-Security software may also object to modified browser code. Use only an
-isolated portable/test copy and never for high-risk browsing.
+## Project information
 
-## Verification status
+- Author: Jaroslav Safar
+- Contact: `jaroslav.safar.91@gmail.com`
+- License: [MIT](LICENSE)
+- Current release: [Gamma22Tray v0.4.0](https://github.com/mrsaliericz/chromium-hdr-sdr-gamma22/releases/tag/v0.4.0)
 
-The PortableApps Chrome `150.0.7871.187`, Chrome for Testing `151.0.7922.138`,
-and the equivalent Edge patch were visually verified on Windows 11 with
-Windows HDR enabled for:
-
-- SDR black-level and grayscale tests matching a pure gamma 2.2 reference;
-- Display-P3 remaining wide gamut;
-- **native HDR video, PQ/HLG, HDR black levels and highlights remaining fully
-  correct and unchanged, matching an unmodified Chromium browser;**
-- stable SDR appearance on mixed SDR + P3/HDR pages.
-
-The Chrome mixed-content test remained stable when P3/HDR content appeared or
-disappeared, while native HDR video and wide-gamut content retained the same
-appearance as an unmodified Chromium browser. The patch remains experimental
-because it modifies a signed browser DLL and is tied to one exact build hash.
-
-Open [`tests/gamma22_test.html`](tests/gamma22_test.html) in both patched and
-unmodified Chrome for a quick SDR, P3 and mixed-content comparison. The rows
-inside one patched window are not fully independent references because all of
-them ultimately traverse the patched canonical sRGB space; screenshots from
-patched and unmodified runs provide the stronger comparison.
-
-## Adding another recipe
-
-Do not copy RVAs from a different release. A new recipe needs an exact DLL
-hash and a fresh structural audit. At minimum, verify:
-
-- the unique adjacent BT.709 gamut, kSRGB and k2Dot2 Skia constants;
-- every inline sRGB+BT.709 construction and its exact count;
-- the Windows HDR `DisplayColorSpaces` setup for SDR, WCG and HDR;
-- the output helper ABI and any trampoline/code-cave assumptions;
-- unmodified P3, PQ and HLG paths.
-
-Pull requests for reviewed recipes and for replacing binary hooks with a clean
-upstream Chromium feature are welcome.
-
-## Building the standalone EXE
-
-Install PyInstaller and run:
-
-```powershell
-python -m pip install pyinstaller
-.\build_exe.ps1
-```
-
-The result is `dist\Gamma22Patcher.exe`. The EXE embeds only this patcher and
-its JSON recipes; it does not contain Chrome.
-
-## License
-
-The patcher source and recipes are MIT-licensed: they are free to use, copy,
-modify, publish and redistribute, including in derivative projects, subject
-only to the short terms in [`LICENSE`](LICENSE). The patcher is and will remain
-free; donations never unlock features or recipes.
-
-If the project helped you and you voluntarily want to support continued recipe
-research, you can [buy me a coffee](https://buymeacoffee.com/mrsaliericze).
-Google Chrome, Chromium, Skia, Windows and Microsoft Edge retain their
-respective licenses and marks.
+Historical documentation for the retired version-specific workflows is kept
+in [`archive/LEGACY_VERSION_SPECIFIC_PATCHER.md`](archive/LEGACY_VERSION_SPECIFIC_PATCHER.md).
