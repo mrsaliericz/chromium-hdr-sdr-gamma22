@@ -2,16 +2,22 @@
 /EdgeGamma22Portable/
 /chrome_gamma22_work/
 /portableapps_work/
+/runtime_work/
+/yt-clean-*/
 /edge_symbols/
 /dia2dump_bin/
 /dia2dump_src/
 /__pycache__/
+/assets/icon-sizes/
+/assets/exe-associated-icon.png
 /patch_edge_gamma22.py
 /edge_gamma22_test.html
 
 # Build output and binary payloads (never commit Chrome/Edge binaries)
 /build/
 /dist/
+/build-onedir/
+/dist-onedir/
 *.dll
 *.exe
 *.pdb

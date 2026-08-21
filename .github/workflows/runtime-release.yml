@@ -1,0 +1,68 @@
+name: Build Gamma22Tray release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependency
+        run: python -m pip install --disable-pip-version-check pyinstaller==6.14.2
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build Gamma22Tray onedir package
+        shell: powershell
+        run: .\build_hot_attach_exe.ps1
+
+      - name: Create release and upload ZIP
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $sourceNotes = "release/RELEASE_NOTES_$tag.md"
+          if (-not (Test-Path -LiteralPath $sourceNotes)) {
+            throw "Release notes not found: $sourceNotes"
+          }
+          $asset = "dist/Gamma22Tray-win64.zip"
+          $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash
+          $notes = Join-Path $env:RUNNER_TEMP "release-notes.md"
+          Copy-Item -LiteralPath $sourceNotes -Destination $notes
+          $releaseDetails = @(
+            "",
+            "### Release package",
+            "",
+            "SHA-256 (Gamma22Tray-win64.zip):",
+            "",
+            $hash,
+            "",
+            "Built by GitHub Actions from source commit $env:GITHUB_SHA."
+          )
+          Add-Content -LiteralPath $notes -Value $releaseDetails
+          $arguments = @(
+            "release", "create", $tag,
+            "$asset#Gamma22Tray-win64.zip",
+            "--verify-tag",
+            "--title", "Gamma22Tray $tag - Chrome and Edge runtime release",
+            "--notes-file", $notes
+          )
+          if ($tag -match "-") {
+            $arguments += "--prerelease"
+          }
+          gh @arguments
